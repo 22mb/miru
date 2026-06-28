@@ -49,15 +49,9 @@ jobs:
       - name: Resolve version and check release
         id: v
         run: |
-          version="$(jq -r .version package.json)"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          if gh release view "$version" >/dev/null 2>&1; then
-            echo "::notice::Release $version already exists; nothing to publish."
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "::notice::Release $version not found; will publish."
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-          fi
+          v=$(jq -r .version package.json)
+          gh release view "$v" >/dev/null 2>&1 && p=false || p=true
+          { echo "version=$v"; echo "publish=$p"; } >> "$GITHUB_OUTPUT"
 
   release:
     name: Build and publish release
