@@ -24,6 +24,16 @@ AI が生成した Markdown / HTML を、ブラウザでレンダリングした
 
 ## インストール
 
+### Homebrew (macOS / Linux)
+
+```sh
+brew tap 22mb/miru
+brew trust 22mb/miru   # Homebrew 6.x 以降では third-party tap に必要
+brew install miru
+```
+
+`brew trust` は古い Homebrew では no-op になるので、書いておけば両バージョンに対応できます。
+
 ### バイナリ
 
 GitHub Releases から OS とアーキテクチャ別のバイナリ（win / macOS / linux）をダウンロードして実行します。

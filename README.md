@@ -24,6 +24,16 @@ Fully local — nothing is sent externally.
 
 ## Installation
 
+### Homebrew (macOS / Linux)
+
+```sh
+brew tap 22mb/miru
+brew trust 22mb/miru   # required on Homebrew 6.x+ (third-party tap)
+brew install miru
+```
+
+The `brew trust` step is a no-op on older Homebrew where third-party taps load without it.
+
 ### Binary
 
 Download the OS / arch binary (win / macOS / linux) from GitHub Releases and run it.
