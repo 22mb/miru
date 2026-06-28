@@ -6,7 +6,8 @@ const targets = ["package.json", ...new Glob("packages/*/package.json").scanSync
 const versionRe = /^(\s*"version":\s*")([^"]+)(")/m;
 
 const rootRaw = readFileSync("package.json", "utf8");
-const current = rootRaw.match(versionRe)![2];
+const current = rootRaw.match(versionRe)?.[2];
+if (!current) throw new Error('Could not find "version" in package.json');
 
 const now = new Date();
 const base = `${now.getFullYear()}.${now.getMonth() + 1}.${now.getDate()}`;

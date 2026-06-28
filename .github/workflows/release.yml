@@ -43,26 +43,16 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+
+      # Script writes `version` / `publish` to $GITHUB_OUTPUT; no dependencies
+      # are required so we skip `bun install`.
       - name: Resolve version and check release
         id: v
-        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
-        with:
-          script: |
-            const { version } = require("./package.json");
-            let publish = true;
-            try {
-              await github.rest.repos.getReleaseByTag({ ...context.repo, tag: version });
-              publish = false;
-            } catch (e) {
-              if (e.status !== 404) throw e;
-            }
-            core.setOutput("version", version);
-            core.setOutput("publish", publish);
-            core.notice(
-              publish
-                ? `Release ${version} not found; will publish.`
-                : `Release ${version} already exists; nothing to publish.`,
-            );
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bun run scripts/check-release.ts
 
   release:
     name: Build and publish release
