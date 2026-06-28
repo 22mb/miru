@@ -78,7 +78,7 @@ Once the [skill](skills/miru/SKILL.md) is installed (see [Skill](#skill)), the a
 ## Alternatives
 
 If **code review (git diff) is your primary goal**, [difit](https://github.com/yoshiko-pg/difit) is the right tool.
-If you want **richer features**, consider [crit](https://github.com/).
+If you want **richer features**, consider [crit](https://crit.md/).
 miru focuses narrowly on inline review of rendered md / HTML — no generation, sharing, or PR integration.
 
 ## License

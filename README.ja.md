@@ -78,7 +78,7 @@ miru review <file.md|.html>
 ## 代替ツール
 
 **コードレビュー（git diff）を主目的とする場合**は [difit](https://github.com/yoshiko-pg/difit) が適しています。
-**よりリッチな機能を求める場合**は [crit](https://github.com/) を検討してください。
+**よりリッチな機能を求める場合**は [crit](https://crit.md/) を検討してください。
 miru はレンダリングされた md / HTML のインラインレビューに絞った設計で、生成・共有・PR 連携は持ちません。
 
 ## ライセンス
