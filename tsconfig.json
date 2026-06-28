@@ -4,6 +4,7 @@
     { "path": "./packages/contract" },
     { "path": "./packages/server" },
     { "path": "./packages/cli" },
-    { "path": "./packages/frontend" }
+    { "path": "./packages/frontend" },
+    { "path": "./tsconfig.scripts.json" }
   ]
 }

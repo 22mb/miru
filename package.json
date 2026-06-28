@@ -15,7 +15,7 @@
     "build": "bun run build:front && bun build --compile packages/cli/src/cli.ts --outfile miru && bun run scripts/clean-build.ts",
     "bump": "bun run scripts/bump-version.ts",
     "test": "bun test --isolate",
-    "typecheck": "tsc -b && tsc -p tsconfig.scripts.json",
+    "typecheck": "tsc -b",
     "lint": "oxlint --deny-warnings packages",
     "fmt": "oxfmt packages",
     "fmt:check": "oxfmt --check packages",
