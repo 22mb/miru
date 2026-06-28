@@ -34,8 +34,6 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     outputs:
       version: ${{ steps.v.outputs.version }}
       publish: ${{ steps.v.outputs.publish }}
@@ -45,13 +43,26 @@ jobs:
         with:
           persist-credentials: false
 
-      # `jq` is preinstalled on ubuntu-latest, so we skip the Bun setup here.
       - name: Resolve version and check release
         id: v
-        run: |
-          v=$(jq -r .version package.json)
-          gh release view "$v" >/dev/null 2>&1 && p=false || p=true
-          { echo "version=$v"; echo "publish=$p"; } >> "$GITHUB_OUTPUT"
+        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
+        with:
+          script: |
+            const { version } = require("./package.json");
+            let publish = true;
+            try {
+              await github.rest.repos.getReleaseByTag({ ...context.repo, tag: version });
+              publish = false;
+            } catch (e) {
+              if (e.status !== 404) throw e;
+            }
+            core.setOutput("version", version);
+            core.setOutput("publish", publish);
+            core.notice(
+              publish
+                ? `Release ${version} not found; will publish.`
+                : `Release ${version} already exists; nothing to publish.`,
+            );
 
   release:
     name: Build and publish release
