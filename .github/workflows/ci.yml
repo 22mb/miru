@@ -96,5 +96,10 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Build frontend
+        # server.ts text-imports packages/server/src/assets/miru.{js,css}, which are
+        # produced by build:front and gitignored — tests cannot load server.ts without them.
+        run: bun run build:front
+
       - name: Test
-        run: bun test
+        run: bun run test
