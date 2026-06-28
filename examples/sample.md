@@ -2,11 +2,30 @@
 
 This is a paragraph to review. **Select this sentence** to attach a comment. You can also try selecting text that spans multiple paragraphs.
 
+Use the keyboard: `j` / `k` move between comments, `r` resolves, and `Esc` cancels a draft. Anchors follow minor edits — when they cannot be restored they move to a `stale` pile rather than disappear silently.
+
+## Paragraph review
+
+Long-form prose is where text anchors do real work. Try selecting any phrase here — a single word, a span across two sentences, or a chunk that crosses a `<strong>` boundary. The text offset is found by walking the DOM with `TreeWalker`; when the offset drifts after an edit, miru re-searches by the surrounding `prefix` and `suffix`. If even the quote disappears, the anchor is set aside as `stale` instead of being silently dropped.
+
+> "Inline review is about pinning feedback to the rendered surface, not the file's bytes."
+>
+> — sample blockquote, also `Alt`+clickable as an element
+
 ## List
 
-- First item
-- Second item
-- Third item
+- **Critical**: fix the data-loss bug in the save flow
+- **High**: add a filter UI to the comment panel
+- **Nice-to-have**: polish keyboard shortcuts for navigation
+
+### Nested list
+
+- Anchors
+  - `text` — quote + `prefix` / `suffix` re-search
+  - `element` — selector → role + accessible name → tag chain + text hint
+- Replies
+  - One thread per comment
+  - Resolved separately from answered
 
 ## Image (Alt+click for element comments)
 
@@ -20,6 +39,8 @@ export function greet(name: string): string {
 }
 ```
 
+You can also drop a text comment on an inline reference like `greet(name)` — it lives in flowing prose, not as a block element.
+
 ## Table
 
 | Feature | Anchor | Status |
@@ -27,3 +48,8 @@ export function greet(name: string): string {
 | Text selection | text | Implemented |
 | Element click | element | Implemented |
 | Suggested edit | suggestion | Implemented |
+| Stale fallback | text | Implemented |
+
+## Links
+
+See the [miru repository](https://github.com/22mb/miru) for installation and full documentation. `Alt`+click the link itself to attach an element comment, or select the link text for a text-anchored comment.
