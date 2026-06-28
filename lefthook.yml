@@ -3,6 +3,6 @@
 pre-commit:
   jobs:
     - name: fmt
-      glob: "packages/**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts,css}"
+      glob: "{packages,scripts}/**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts,css}"
       run: bunx oxfmt {staged_files}
       stage_fixed: true

@@ -16,9 +16,9 @@
     "bump": "bun run scripts/bump-version.ts",
     "test": "bun test --isolate",
     "typecheck": "tsc -b",
-    "lint": "oxlint --deny-warnings packages",
-    "fmt": "oxfmt packages",
-    "fmt:check": "oxfmt --check packages",
+    "lint": "oxlint --deny-warnings packages scripts",
+    "fmt": "oxfmt packages scripts",
+    "fmt:check": "oxfmt --check packages scripts",
     "prepare": "lefthook install"
   },
   "devDependencies": {
