@@ -1,0 +1,20 @@
+{
+  // Vite-style second project: code that isn't the browser app. Here that's the test suite
+  // (*.test.tsx + infra: register-dom, fixtures), which needs `bun:test` / happy-dom types
+  // that must not leak into the app build. Typecheck-only (noEmit, inherited): nothing
+  // imports the frontend's declarations.
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "types": ["react", "react-dom", "bun"],
+    "tsBuildInfoFile": "./node_modules/.cache/frontend-node.tsbuildinfo"
+  },
+  // Type-check the whole src tree (tests + the app source they import) with the bun/happy-dom
+  // types. The app's own build (tsconfig.app.json) excludes the tests and omits these types, so
+  // that boundary — no bun/test globals leaking into shipped app code — is still enforced there.
+  // We can't `reference` tsconfig.app.json instead: it's noEmit, and a referenced project must
+  // emit declarations (TS6310). Don't reintroduce app.json's `exclude` here either: an inherited
+  // exclude wins over this `include`, which would silently leave the test suite unchecked.
+  "include": ["src"],
+  "exclude": [],
+  "references": [{ "path": "../contract" }]
+}

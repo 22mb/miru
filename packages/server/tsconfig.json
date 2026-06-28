@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "noEmit": false,
+    "emitDeclarationOnly": true,
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "types": ["bun"],
+    "tsBuildInfoFile": "./node_modules/.cache/server.tsbuildinfo"
+  },
+  "include": ["src"],
+  "references": [{ "path": "../contract" }]
+}

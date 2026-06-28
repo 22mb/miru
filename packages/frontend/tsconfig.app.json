@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // Leaf package — nothing imports the frontend's types — so typecheck only, no emit.
+    "composite": true,
+    "rootDir": "./src",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "types": ["react", "react-dom"],
+    "tsBuildInfoFile": "./node_modules/.cache/frontend-app.tsbuildinfo"
+  },
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/register-dom.ts", "src/fixtures.ts"],
+  "references": [{ "path": "../contract" }]
+}

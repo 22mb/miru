@@ -1,0 +1,15 @@
+{
+  "name": "@miru/cli",
+  "version": "2026.6.27",
+  "bin": {
+    "miru": "./src/cli.ts"
+  },
+  "type": "module",
+  "dependencies": {
+    "@miru/contract": "workspace:*",
+    "@miru/server": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14"
+  }
+}

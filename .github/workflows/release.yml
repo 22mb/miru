@@ -1,0 +1,100 @@
+name: Release
+
+# Manually triggered from the Actions tab. Only collaborators with write access
+# can dispatch the workflow (GitHub enforces this), which keeps release minting
+# limited to maintainers. The version is read from package.json — bump it,
+# merge to main, then run this workflow. The tag is created by `gh release create`.
+on:
+  workflow_dispatch:
+
+# Least privilege at the top level; the release job opts into exactly what it needs.
+permissions: {}
+
+# A release must not be cancelled midway — a partial release is worse than a queued one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+# Bash enables pipefail, so failures in piped commands aren't swallowed.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  release:
+    name: Build and publish release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Required for: tag + release creation (contents), Sigstore signing (id-token),
+    # and build provenance attestations (attestations).
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      # Bun version is read from package.json `engines.bun` by setup-bun.
+      # `bun build --compile` embeds this runtime into every shipped binary,
+      # so the toolchain version is part of the release artifact.
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # Single source of truth for the release version is package.json.
+      # Guard against re-running for an already-published version.
+      - name: Resolve and validate version
+        run: |
+          version="$(bun --print 'require("./package.json").version')"
+          if gh release view "$version" >/dev/null 2>&1; then
+            echo "::error::Release $version already exists"
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      # Bundle the React frontend (packages/server/src/assets/miru.js + miru.css); these
+      # are embedded into each binary by `bun build --compile`, so this must run first.
+      - name: Build frontend
+        run: bun run build:front
+
+      # Cross-compile every target from this single Linux runner.
+      - name: Build binaries
+        run: |
+          mkdir -p dist
+          build() {
+            local target="$1" name="$2"
+            echo "Building ${name} (${target})"
+            bun build --compile --target="${target}" packages/cli/src/cli.ts --outfile "dist/${name}"
+          }
+          build bun-linux-x64    miru-linux-x64
+          build bun-linux-arm64  miru-linux-arm64
+          build bun-darwin-x64   miru-macos-x64
+          build bun-darwin-arm64 miru-macos-arm64
+          build bun-windows-x64  miru-windows-x64.exe
+
+      - name: Generate SHA256 checksums
+        working-directory: dist
+        run: |
+          for f in miru-*; do
+            sha256sum "$f" > "$f.sha256"
+          done
+
+      # Build provenance attestation (Sigstore) for binaries and their checksums.
+      # Combined with Immutable Releases (enabled in repo settings), tag and assets
+      # become verifiable via `gh release verify` / `gh release verify-asset`.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: dist/miru-*
+
+      # `gh release create` creates the tag at the current commit if it does not
+      # exist yet, so the tag is only minted once the build succeeds.
+      - name: Create GitHub Release
+        run: gh release create "$VERSION" dist/* --generate-notes

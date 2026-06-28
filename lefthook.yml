@@ -1,0 +1,8 @@
+# Git hooks managed by lefthook. Run `lefthook install` to wire them up
+# (the `prepare` npm script does this automatically after `bun install`).
+pre-commit:
+  jobs:
+    - name: fmt
+      glob: "packages/**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts,css}"
+      run: bunx oxfmt {staged_files}
+      stage_fixed: true

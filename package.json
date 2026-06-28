@@ -1,0 +1,29 @@
+{
+  "name": "miru",
+  "version": "2026.6.27",
+  "description": "Inline review tool for AI-generated md/HTML — select text or click elements, leave comments, fully local.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "bun": "1.3.14"
+  },
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "dev": "bun run build:front && bun run packages/cli/src/cli.ts",
+    "build:front": "bun build packages/frontend/src/index.tsx --outfile packages/server/src/assets/miru.js --production && cp packages/frontend/src/miru.css packages/server/src/assets/miru.css",
+    "build": "bun run build:front && bun build --compile packages/cli/src/cli.ts --outfile miru && bun run scripts/clean-build.ts",
+    "test": "bun test --isolate",
+    "typecheck": "tsc -b",
+    "lint": "oxlint --deny-warnings packages",
+    "fmt": "oxfmt packages",
+    "fmt:check": "oxfmt --check packages",
+    "prepare": "lefthook install"
+  },
+  "devDependencies": {
+    "lefthook": "^2.1.9",
+    "oxfmt": "^0.56.0",
+    "oxlint": "^1.71.0",
+    "typescript": "7.0.1-rc"
+  }
+}

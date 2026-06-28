@@ -1,0 +1,10 @@
+node_modules/
+/miru
+packages/server/src/assets/
+*.miru.json
+*.bun-build
+*.tsbuildinfo
+.DS_Store
+
+# composite declaration output (emitted only by the consumed packages: contract, server)
+dist/

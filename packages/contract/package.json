@@ -1,0 +1,14 @@
+{
+  "name": "@miru/contract",
+  "version": "2026.6.27",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./index.ts"
+    }
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  }
+}

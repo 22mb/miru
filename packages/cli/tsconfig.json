@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // Leaf package (the CLI entry — nothing imports it), so typecheck only, no emit.
+    "composite": true,
+    "rootDir": "./src",
+    "types": ["bun"],
+    "tsBuildInfoFile": "./node_modules/.cache/cli.tsbuildinfo"
+  },
+  "include": ["src"],
+  "references": [{ "path": "../contract" }, { "path": "../server" }]
+}
