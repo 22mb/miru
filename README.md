@@ -28,6 +28,20 @@ Fully local — nothing is sent externally.
 
 Download the OS / arch binary (win / macOS / linux) from GitHub Releases and run it.
 
+### Skill
+
+miru ships a [skill](skills/miru/SKILL.md) that teaches an AI agent (Claude Code, etc.) to drive the comment → fix → reply loop. Pick either route:
+
+```sh
+# via the gh skill extension
+gh skill install 22mb/miru
+
+# via miru itself
+miru install
+```
+
+Both drop `SKILL.md` at `~/.claude/skills/miru/SKILL.md`. Only `claude-code` is supported today.
+
 ## Usage
 
 ```sh
@@ -59,8 +73,7 @@ Comments are saved to `<file>.miru.json` alongside the target file.
 
 ### Use with an AI agent
 
-miru ships a [skill](skills/miru/SKILL.md) that teaches an AI agent to drive the loop (comment → fix → reply → next round).
-Install it with `miru install`; the agent then runs `miru review`, reads the JSON, applies fixes, and replies — repeating until you approve with zero comments.
+Once the [skill](skills/miru/SKILL.md) is installed (see [Skill](#skill)), the agent runs `miru review`, reads the JSON, applies fixes, and replies — repeating until you approve with zero comments.
 
 ## Alternatives
 

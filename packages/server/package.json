@@ -1,6 +1,6 @@
 {
   "name": "@miru/server",
-  "version": "2026.6.27",
+  "version": "2026.6.28",
   "type": "module",
   "exports": {
     ".": {

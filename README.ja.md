@@ -28,6 +28,20 @@ AI が生成した Markdown / HTML を、ブラウザでレンダリングした
 
 GitHub Releases から OS とアーキテクチャ別のバイナリ（win / macOS / linux）をダウンロードして実行します。
 
+### スキル
+
+miru は、コメント → 修正 → 返信のループを AI エージェント（Claude Code など）に教える[スキル](skills/miru/SKILL.md)を同梱しています。次のいずれかでインストールできます。
+
+```sh
+# gh skill 拡張経由
+gh skill install 22mb/miru
+
+# miru 自身経由
+miru install
+```
+
+どちらも `SKILL.md` を `~/.claude/skills/miru/SKILL.md` に配置します。現状サポートしているのは `claude-code` のみです。
+
 ## 使い方
 
 ```sh
@@ -59,9 +73,7 @@ miru review <file.md|.html>
 
 ### AI エージェントから利用する
 
-miru は、コメント → 修正 → 返信 → 次のラウンドというループを AI エージェントに教える[スキル](skills/miru/SKILL.md)を同梱しています。
-`miru install` でインストールすると、エージェントが `miru review` を実行し、JSON を読み、修正を適用して返信します。
-これを、コメントがゼロで承認されるまで繰り返します。
+[スキル](skills/miru/SKILL.md)をインストールしておけば（[スキル](#スキル)節を参照）、エージェントが `miru review` を実行し、JSON を読み、修正を適用して返信します。これを、コメントがゼロで承認されるまで繰り返します。
 
 ## 代替ツール
 

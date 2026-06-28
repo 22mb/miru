@@ -1,6 +1,6 @@
 {
   "name": "miru",
-  "version": "2026.6.27",
+  "version": "2026.6.28",
   "description": "Inline review tool for AI-generated md/HTML — select text or click elements, leave comments, fully local.",
   "license": "MIT",
   "private": true,

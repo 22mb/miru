@@ -13,7 +13,7 @@
     },
     "packages/cli": {
       "name": "@miru/cli",
-      "version": "2026.6.27",
+      "version": "2026.6.28",
       "bin": {
         "miru": "./src/cli.ts",
       },
@@ -27,14 +27,14 @@
     },
     "packages/contract": {
       "name": "@miru/contract",
-      "version": "2026.6.27",
+      "version": "2026.6.28",
       "dependencies": {
         "zod": "^4.4.3",
       },
     },
     "packages/frontend": {
       "name": "@miru/frontend",
-      "version": "2026.6.27",
+      "version": "2026.6.28",
       "dependencies": {
         "@miru/contract": "workspace:*",
         "react": "^19.2.7",
@@ -52,7 +52,7 @@
     },
     "packages/server": {
       "name": "@miru/server",
-      "version": "2026.6.27",
+      "version": "2026.6.28",
       "dependencies": {
         "@miru/contract": "workspace:*",
         "sanitize-html": "^2.17.5",
