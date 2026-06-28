@@ -13,6 +13,7 @@
     "dev": "bun run build:front && bun run packages/cli/src/cli.ts",
     "build:front": "bun build packages/frontend/src/index.tsx --outfile packages/server/src/assets/miru.js --production && cp packages/frontend/src/miru.css packages/server/src/assets/miru.css",
     "build": "bun run build:front && bun build --compile packages/cli/src/cli.ts --outfile miru && bun run scripts/clean-build.ts",
+    "bump": "bun run scripts/bump-version.ts",
     "test": "bun test --isolate",
     "typecheck": "tsc -b",
     "lint": "oxlint --deny-warnings packages",
