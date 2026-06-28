@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": "./scripts",
+    "types": ["bun"],
+    "tsBuildInfoFile": "./node_modules/.cache/scripts.tsbuildinfo"
+  },
+  "include": ["scripts"]
+}

@@ -1,13 +1,20 @@
 name: Release
 
-# Manually triggered from the Actions tab. Only collaborators with write access
-# can dispatch the workflow (GitHub enforces this), which keeps release minting
-# limited to maintainers. The version is read from package.json — bump it,
-# merge to main, then run this workflow. The tag is created by `gh release create`.
+# Triggers:
+# - workflow_dispatch: explicit, manual release from the Actions tab.
+# - push to main when package.json changes: a merged version bump auto-publishes.
+# Both paths converge on the same job. The lightweight `check` job no-ops if a
+# release already exists for the current version, so unrelated package.json
+# edits (devDependency bumps, script tweaks) and re-runs cost only the check.
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - package.json
 
-# Least privilege at the top level; the release job opts into exactly what it needs.
+# Least privilege at the top level; jobs opt into exactly what they need.
 permissions: {}
 
 # A release must not be cancelled midway — a partial release is worse than a queued one.
@@ -21,8 +28,36 @@ defaults:
     shell: bash
 
 jobs:
+  check:
+    name: Check release status
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      publish: ${{ steps.v.outputs.publish }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+
+      # Script writes `version` / `publish` to $GITHUB_OUTPUT; no dependencies
+      # are required so we skip `bun install`.
+      - name: Resolve version and check release
+        id: v
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bun run scripts/check-release.ts
+
   release:
     name: Build and publish release
+    needs: check
+    if: needs.check.outputs.publish == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # Required for: tag + release creation (contents), Sigstore signing (id-token),
@@ -33,6 +68,7 @@ jobs:
       attestations: write
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      VERSION: ${{ needs.check.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -47,17 +83,6 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
-
-      # Single source of truth for the release version is package.json.
-      # Guard against re-running for an already-published version.
-      - name: Resolve and validate version
-        run: |
-          version="$(bun --print 'require("./package.json").version')"
-          if gh release view "$version" >/dev/null 2>&1; then
-            echo "::error::Release $version already exists"
-            exit 1
-          fi
-          echo "VERSION=$version" >> "$GITHUB_ENV"
 
       # Bundle the React frontend (packages/server/src/assets/miru.js + miru.css); these
       # are embedded into each binary by `bun build --compile`, so this must run first.
