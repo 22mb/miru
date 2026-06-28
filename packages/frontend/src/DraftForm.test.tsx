@@ -36,7 +36,7 @@ describe("DraftForm", () => {
     expect(calls).toEqual([["later", "", true]]);
   });
 
-  test("submit buttons stay disabled until the body has non-whitespace text", async () => {
+  test("submit buttons stay disabled until either the body or the suggestion has non-whitespace text", async () => {
     const user = userEvent.setup();
     const { getByRole } = render(<DraftForm draft={draft} onCancel={noop} onSubmit={noop} />);
     const comment = getByRole("button", { name: "Comment" }) as HTMLButtonElement;
@@ -46,6 +46,23 @@ describe("DraftForm", () => {
     await user.type(getByRole("textbox", { name: "Comment (markdown)" }), "ok");
     expect(comment.disabled).toBe(false);
     expect(stage.disabled).toBe(false);
+  });
+
+  test("suggestion-only submit is allowed (no body text)", async () => {
+    const user = userEvent.setup();
+    const calls: Array<[string, string, boolean]> = [];
+    const { getByRole } = render(
+      <DraftForm draft={draft} onCancel={noop} onSubmit={(b, s, d) => calls.push([b, s, d])} />,
+    );
+    const comment = getByRole("button", { name: "Comment" }) as HTMLButtonElement;
+    expect(comment.disabled).toBe(true);
+    await user.type(
+      getByRole("textbox", { name: "Suggestion (optional: replacement text)" }),
+      "replaced",
+    );
+    expect(comment.disabled).toBe(false);
+    await user.click(comment);
+    expect(calls).toEqual([["", "replaced", false]]);
   });
 
   test("Cancel fires onCancel", async () => {

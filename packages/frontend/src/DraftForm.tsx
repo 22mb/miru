@@ -39,7 +39,9 @@ export function DraftForm(props: {
 }) {
   const [body, setBody] = useState("");
   const [sug, setSug] = useState("");
-  const trimmed = body.trim();
+  // Either field counts: a suggestion-only comment (replacement text without prose)
+  // is a valid review interaction.
+  const hasContent = !!(body.trim() || sug.trim());
   const commentRef = useRef<HTMLButtonElement>(null);
   const draftRef = useRef<HTMLButtonElement>(null);
 
@@ -48,7 +50,7 @@ export function DraftForm(props: {
   // into FormData, so the action sees which button fired. Disabling on `pending` lets
   // the parent's async submit finish before a second click can fire.
   const [, submitAction, pending] = useActionState<null, FormData>(async (_prev, fd) => {
-    if (!trimmed) return null;
+    if (!hasContent) return null;
     props.onSubmit(body, sug, fd.get("intent") === "draft");
     return null;
   }, null);
@@ -105,7 +107,7 @@ export function DraftForm(props: {
           type="submit"
           name="intent"
           value="draft"
-          disabled={!trimmed || pending}
+          disabled={!hasContent || pending}
         >
           Add to review{" "}
           <kbd className="miru-btn-kbd" aria-hidden="true">
@@ -118,7 +120,7 @@ export function DraftForm(props: {
           name="intent"
           value="comment"
           className="miru-primary"
-          disabled={!trimmed || pending}
+          disabled={!hasContent || pending}
         >
           Comment{" "}
           <kbd className="miru-btn-kbd" aria-hidden="true">
