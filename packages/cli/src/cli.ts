@@ -21,6 +21,12 @@ import {
 } from "@miru/server";
 import { awaitingAgent, openForAgent, type Comment, type Reply } from "@miru/contract";
 import skillMd from "./skill/SKILL.md" with { type: "text" };
+// The CLI's own manifest — pulled in so `--version` prints the build-time CalVer
+// the bump script wrote. The parent-directory hop is the only way to reach it
+// without duplicating the field into src/, since package.json must stay at the
+// workspace root for `bun build --compile` to resolve.
+// oxlint-disable-next-line import/no-relative-parent-imports
+import pkg from "../package.json" with { type: "json" };
 
 const USAGE = `usage:
   miru review <file.md|.html> [--port N] [--no-open] [--unsafe-raw] [--lang L]
@@ -36,7 +42,9 @@ const USAGE = `usage:
       Block until comments await the agent, then print them as JSON (the agent loop:
       next -> fix -> reply, repeating). Returns immediately if some already await.
   miru install [claude-code]
-      Install the miru skill into ~/.claude/skills/miru/SKILL.md.`;
+      Install the miru skill into ~/.claude/skills/miru/SKILL.md.
+  miru --version | -v
+      Print the embedded build version and exit.`;
 
 function openBrowser(url: string): void {
   const platform = process.platform;
@@ -82,8 +90,17 @@ const { positionals, values } = parseArgs({
     json: { type: "boolean", default: false },
     "reply-to": { type: "string" },
     resolve: { type: "string" },
+    version: { type: "boolean", short: "v", default: false },
   },
 });
+
+// `miru --version` / `miru -v` prints the embedded build version and exits. The
+// value is the CalVer string baked into packages/cli/package.json by the bump
+// script, so it matches the GitHub release tag the binary was built from.
+if (values.version) {
+  console.log(pkg.version);
+  process.exit(0);
+}
 
 const command = positionals[0];
 

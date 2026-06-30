@@ -78,6 +78,7 @@ Comments are saved to `<file>.miru.json` alongside the target file.
 | `miru comment <file> --resolve <id>` | Mark a comment resolved. |
 | `miru next <file>` | Block until comments await the agent (or you approve), then print them as JSON — the agent loop (`next` → fix → reply). |
 | `miru install [claude-code]` | Install the bundled skill into `~/.claude/skills/miru/SKILL.md`. |
+| `miru --version` (`-v`) | Print the embedded build version and exit. |
 
 ### Use with an AI agent
 
