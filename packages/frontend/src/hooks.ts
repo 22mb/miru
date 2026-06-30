@@ -18,7 +18,7 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import type { Anchor, Comment, ReviewFile } from "@miru/contract";
-import { anchorElement, buildElementAnchor, buildTextAnchor, isStale } from "./anchor.ts";
+import { buildElementAnchor, buildTextAnchor, isStale, scrollToComment } from "./anchor.ts";
 import { api } from "./api.ts";
 import type { Draft } from "./DraftForm.tsx";
 import { DOC, docText } from "./dom.ts";
@@ -217,7 +217,7 @@ export function useComments(initialPromise: Promise<ReviewFile>): CommentsApi {
       setActiveId(id);
       if (!scroll) return;
       const c = comments.find((x) => x.id === id);
-      if (c) anchorElement(c)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (c) scrollToComment(c);
     },
     [comments],
   );

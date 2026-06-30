@@ -1,12 +1,13 @@
 import "./register-dom.ts";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import {
-  anchorElement,
+  anchorRect,
   buildElementAnchor,
   buildTextAnchor,
   isStale,
   resolveElement,
   resolveText,
+  scrollToComment,
 } from "./anchor.ts";
 import { docText, offsetOf, rangeFromOffsets } from "./dom.ts";
 import { makeComment } from "./fixtures.ts";
@@ -17,8 +18,12 @@ function setDoc(html: string): HTMLElement {
   return document.querySelector<HTMLElement>(".miru-doc")!;
 }
 
+// Tests in the "combined helpers" group stub Range.prototype.getBoundingClientRect to
+// simulate layout; restore it after each test so the override doesn't leak.
+const realRangeRect = Range.prototype.getBoundingClientRect;
 afterEach(() => {
   document.body.innerHTML = "";
+  Range.prototype.getBoundingClientRect = realRangeRect;
 });
 
 describe("text offsets", () => {
@@ -106,12 +111,66 @@ describe("element anchor restore paths", () => {
 });
 
 describe("combined helpers", () => {
-  test("anchorElement returns the element containing a resolved text anchor", () => {
-    const root = setDoc("<p>alpha</p><p>beta</p>");
-    const anchor = buildTextAnchor(rangeFromOffsets(root, 6, 9)!)!; // "eta" inside "beta"
-    const el = anchorElement(makeComment({ anchor }));
-    expect(el?.tagName).toBe("P");
-    expect(el?.textContent).toBe("beta");
+  test("anchorRect prefers the Range rect over the parent block", () => {
+    // The parent <p> wraps to many visual lines, but the anchored quote sits on the last
+    // one — centring the parent would push the quote far from viewport centre, which is
+    // the bug this helper fixes. The Range rect tracks the actual quote location.
+    const root = setDoc("<p>line 1\nline 2 longer\nline 3 target</p>");
+    const full = docText(root);
+    const start = full.indexOf("target");
+    const anchor = buildTextAnchor(rangeFromOffsets(root, start, start + 6)!)!;
+    const para = root.querySelector("p")!;
+    // Stub bounding rects: parent spans 0–200, the quote sits at 180–196 (near the bottom).
+    para.getBoundingClientRect = () => new DOMRect(0, 0, 800, 200);
+    Range.prototype.getBoundingClientRect = () => new DOMRect(50, 180, 60, 16);
+    const rect = anchorRect(makeComment({ anchor }));
+    expect(rect?.top).toBe(180);
+    expect(rect?.height).toBe(16);
+  });
+
+  test("anchorRect returns the element rect for element anchors", () => {
+    setDoc('<p><img src="data:," alt="logo"></p>');
+    const img = document.querySelector("img")!;
+    img.getBoundingClientRect = () => new DOMRect(10, 20, 100, 80);
+    const anchor = buildElementAnchor(img);
+    expect(anchorRect(makeComment({ anchor }))?.top).toBe(20);
+  });
+
+  test("anchorRect is null when the anchor no longer resolves", () => {
+    const root = setDoc("<p>findable</p>");
+    const anchor = buildTextAnchor(rangeFromOffsets(root, 0, 8)!)!;
+    setDoc("<p>nothing</p>");
+    expect(anchorRect(makeComment({ anchor }))).toBeNull();
+  });
+
+  test("scrollToComment centres the anchor rect, not the enclosing block", () => {
+    // Same shape as the bug repro: text anchor on a multi-visual-line paragraph. The fix
+    // must use the Range rect so the quote — not the paragraph midpoint — lands at center.
+    const root = setDoc("<p>line 1\nline 2 longer\nline 3 target</p>");
+    const full = docText(root);
+    const start = full.indexOf("target");
+    const anchor = buildTextAnchor(rangeFromOffsets(root, start, start + 6)!)!;
+    const para = root.querySelector("p")!;
+    para.getBoundingClientRect = () => new DOMRect(0, 0, 800, 200); // parent midpoint at y=100
+    Range.prototype.getBoundingClientRect = () => new DOMRect(50, 180, 60, 16); // quote midpoint at y=188
+    const scrollBy = mock((_opts: ScrollToOptions) => {});
+    (window as unknown as { scrollBy: typeof scrollBy }).scrollBy = scrollBy;
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 600 });
+    scrollToComment(makeComment({ anchor }));
+    // Range centre 188, viewport centre 300 -> scroll by -112 (up). The buggy behaviour
+    // would have centred the parent (midpoint 100) and produced delta -200 instead.
+    expect(scrollBy).toHaveBeenCalledTimes(1);
+    expect(scrollBy.mock.calls[0]![0]).toEqual({ top: -112, behavior: "smooth" });
+  });
+
+  test("scrollToComment is a no-op when the anchor is stale", () => {
+    const root = setDoc("<p>findable</p>");
+    const anchor = buildTextAnchor(rangeFromOffsets(root, 0, 8)!)!;
+    setDoc("<p>nothing</p>");
+    const scrollBy = mock((_opts: ScrollToOptions) => {});
+    (window as unknown as { scrollBy: typeof scrollBy }).scrollBy = scrollBy;
+    scrollToComment(makeComment({ anchor }));
+    expect(scrollBy).not.toHaveBeenCalled();
   });
 
   test("isStale tracks whether the anchor still resolves", () => {
