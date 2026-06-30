@@ -86,6 +86,7 @@ jobs:
 
       # Bundle the React frontend (packages/server/src/assets/miru.js + miru.css); these
       # are embedded into each binary by `bun build --compile`, so this must run first.
+      # build:front also unblocks the test suite (server.ts text-imports the bundle).
       - name: Build frontend
         run: bun run build:front
 
