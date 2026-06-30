@@ -168,12 +168,26 @@ export function resolveElement(a: ElementAnchor): Element | null {
 }
 
 // ---------- combined ----------
-export function anchorElement(c: Comment): Element | null {
-  if (c.anchor.type === "text") {
-    const r = resolveText(c.anchor);
-    return (r?.startContainer.parentElement as Element | null) ?? null;
-  }
-  return resolveElement(c.anchor);
+// Live bounding rect of a comment's anchor: the Range rect for text, the element rect
+// for element anchors. Returns null when the anchor no longer resolves. Used to scroll
+// the actual anchor — not the enclosing block — to viewport center, which matters when
+// the enclosing block is a tall Markdown paragraph that grew after a source edit (e.g.
+// a single `<p>` whose source lines were merged by blank-line collapsing).
+export function anchorRect(c: Comment): DOMRect | null {
+  if (c.anchor.type === "text") return resolveText(c.anchor)?.getBoundingClientRect() ?? null;
+  return resolveElement(c.anchor)?.getBoundingClientRect() ?? null;
+}
+
+// Scroll the page so the anchor sits at the vertical center of the viewport. Uses the
+// Range/element rect directly instead of Element.scrollIntoView on a parent: a parent
+// `<p>` that wraps to many visual lines would centre its own middle, pushing the actual
+// highlighted text out of view. window.scrollBy clamps to document bounds, so a target
+// near the top/bottom falls back to a partial scroll automatically.
+export function scrollToComment(c: Comment): void {
+  const rect = anchorRect(c);
+  if (!rect) return;
+  const delta = rect.top + rect.height / 2 - window.innerHeight / 2;
+  window.scrollBy({ top: delta, behavior: "smooth" });
 }
 
 export function isStale(c: Comment, fullText?: string): boolean {
