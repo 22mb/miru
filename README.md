@@ -18,7 +18,6 @@ Fully local — nothing is sent externally.
 - **Two anchor types**: text ranges (`text`) and elements (`element`). They track the original file across minor edits; when they can't be restored they are set aside as `stale`.
 - **suggestion**: a comment can carry a fix proposal (replacement text), which can be passed straight to an LLM as a correction instruction.
 - **Human↔AI review loop**: `miru review` blocks until you press "Approve," then prints the unresolved comments as JSON. You can reply or resolve from the browser or headless CLI, and the open page live-reloads (SSE) whenever the file changes. Keyboard shortcuts: `j` / `k` to move, `r` to resolve, `Esc` to cancel a draft.
-- **Markdown export**: bundle all unresolved comments and suggestions into a fix-instruction markdown (`miru export`, or the panel's **Export** button) to hand to an LLM.
 - **Security**: binds only to `127.0.0.1`, gates `/api/*` on a per-launch token (the SSE feed at `/api/events` is excepted — it only pushes content-free reload hints), validates Host and Origin (CSRF and DNS rebinding protection), applies a strict CSP, and sanitizes input HTML server-side.
 - **Fully local**: comments are saved to `<file>.miru.json`. No sharing, external transmission, or telemetry.
 
@@ -78,7 +77,6 @@ Comments are saved to `<file>.miru.json` alongside the target file.
 | `miru comment <file> --reply-to <id> "<body>"` | Reply to a comment. |
 | `miru comment <file> --resolve <id>` | Mark a comment resolved. |
 | `miru next <file>` | Block until comments await the agent (or you approve), then print them as JSON — the agent loop (`next` → fix → reply). |
-| `miru export <file>` | Print all unresolved comments and suggestions as fix-instruction markdown to hand to an LLM. |
 | `miru install [claude-code]` | Install the bundled skill into `~/.claude/skills/miru/SKILL.md`. |
 
 ### Use with an AI agent
