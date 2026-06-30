@@ -1,6 +1,6 @@
 {
   "name": "@miru/cli",
-  "version": "2026.6.28",
+  "version": "2026.7.1",
   "bin": {
     "miru": "./src/cli.ts"
   },
