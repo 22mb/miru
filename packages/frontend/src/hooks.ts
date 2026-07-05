@@ -58,11 +58,13 @@ export function withViewTransition(cb: () => void): void {
 }
 
 // Ref callback that promotes an element to the browser's top layer via the popover API
-// the moment it mounts. Module-level so the ref identity is stable across re-renders —
-// an inline arrow would re-attach every render, and the second showPopover() throws
-// InvalidStateError because the popover is already showing. Optional chain on the
-// method covers DOMs that don't implement it (older test envs) and very old browsers;
-// the element still renders, just without the top-layer guarantee.
+// the moment it mounts. Module-level so the ref identity is stable across re-renders.
+// Re-attachment (e.g. a StrictMode remount) is guarded: a second showPopover() on an
+// already-open popover throws InvalidStateError, so check :popover-open first. The
+// returned cleanup (React 19 ref cleanup) hides the popover on detach, keeping
+// attach/detach symmetric. The try/catch + optional chains cover DOMs that don't
+// implement the popover API (older test envs) and very old browsers; the element still
+// renders, just without the top-layer guarantee.
 //
 // After showing, focus a nested textarea if the popover contains one. This is the
 // draft form's "start typing immediately" hook: React's `autoFocus` fires during commit
@@ -70,24 +72,44 @@ export function withViewTransition(cb: () => void): void {
 // after showPopover flips the popover open, lands the caret in the first textarea.
 // The panel and the "Approved" banner also mount through popoverRef but contain no
 // textarea at that moment, so the querySelector is a harmless miss.
-export function popoverRef(el: HTMLElement | null): void {
-  if (!el) return;
-  el.showPopover?.();
+export function popoverRef(el: HTMLElement | null): (() => void) | undefined {
+  // React never calls a cleanup-returning ref with null; the guard is for the types.
+  if (!el) return undefined;
+  let open = false;
+  try {
+    open = el.matches(":popover-open");
+  } catch {
+    /* selector unsupported → popover API absent; treat as closed */
+  }
+  if (!open) el.showPopover?.();
   el.querySelector<HTMLTextAreaElement>("textarea")?.focus();
+  return () => {
+    try {
+      el.hidePopover?.();
+    } catch {
+      /* already hidden or API absent — nothing to undo */
+    }
+  };
 }
 
 // Subscribe to a document-level event with effect-managed cleanup. Used for the
 // selection / Alt-click / shortcut listeners that have to live above the panel
-// root, where React's synthetic-event delegation can't reach. Pair with
-// useEffectEvent so the handler can read latest state without re-subscribing.
+// root, where React's synthetic-event delegation can't reach. The handler is wrapped
+// in an effect event INSIDE the hook (React's rule: effect events must not cross a
+// component/hook boundary), so callers pass a plain closure that reads the latest
+// state while the subscription attaches once per event type.
 export function useDocumentEvent<K extends keyof DocumentEventMap>(
   type: K,
   handler: (e: DocumentEventMap[K]) => void,
 ): void {
+  const onEvent = useEffectEvent(handler);
   useEffect(() => {
-    document.addEventListener(type, handler);
-    return () => document.removeEventListener(type, handler);
-  }, [type, handler]);
+    const listener = (e: DocumentEventMap[K]) => onEvent(e);
+    document.addEventListener(type, listener);
+    return () => document.removeEventListener(type, listener);
+    // `onEvent` is from useEffectEvent: it must not be in deps (React rule).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [type]);
 }
 
 export interface CommentsApi {
@@ -267,9 +289,9 @@ export function useDraftCapture(): {
 } {
   const [draft, setDraft] = useState<Draft | null>(null);
 
-  // Effect Events let listeners read latest state without forcing the subscription
-  // to re-attach on every render.
-  const openDraft = useEffectEvent((anchor: Anchor, rect: DOMRect) => {
+  // Plain closures throughout — useDocumentEvent wraps its handler in an effect event
+  // internally, so the listeners read the latest state without re-subscribing.
+  const openDraft = (anchor: Anchor, rect: DOMRect) => {
     // Position the draft just below the selection/element, in VIEWPORT coordinates —
     // the form lives in the browser's top layer (popover="manual"), so its containing
     // block is the viewport and `top`/`left` are viewport-relative. Adding scrollY here
@@ -283,9 +305,7 @@ export function useDraftCapture(): {
     //     bottom and there's room above, flip above. Form-height is an estimate (the
     //     element hasn't rendered yet) — covers the default empty state. Heavy growth
     //     from `field-sizing: content` would still overflow, accepted as a niche.
-    const panelW =
-      parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--miru-panel-w")) ||
-      380;
+    const panelW = currentPanelWidth();
     const margin = 16;
     const formHEst = 280;
     const docMaxX = window.innerWidth - panelW;
@@ -305,14 +325,14 @@ export function useDraftCapture(): {
     // our Custom-Highlight repaint sits on top of it. Auto-focusing the form's textarea
     // doesn't collapse the document selection on its own.
     window.getSelection()?.removeAllRanges();
-  });
+  };
 
   const clearDraft = useCallback(() => {
     setDraft(null);
     applyDraftHighlight(null);
   }, []);
 
-  const onMouseUp = useEffectEvent((e: MouseEvent) => {
+  useDocumentEvent("mouseup", (e) => {
     if (inPanel(e.target)) return;
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
@@ -321,7 +341,7 @@ export function useDraftCapture(): {
     if (anchor) openDraft(anchor, range.getBoundingClientRect());
   });
 
-  const onClick = useEffectEvent((e: MouseEvent) => {
+  useDocumentEvent("click", (e) => {
     if (inPanel(e.target) || !e.altKey) return;
     const t = e.target;
     if (!(t instanceof Element) || !DOC().contains(t)) return;
@@ -329,9 +349,6 @@ export function useDraftCapture(): {
     const el = t.closest(ALT_CLICK_TARGETS) ?? t;
     openDraft(buildElementAnchor(el), el.getBoundingClientRect());
   });
-
-  useDocumentEvent("mouseup", onMouseUp);
-  useDocumentEvent("click", onClick);
 
   return { draft, clearDraft };
 }
@@ -489,7 +506,9 @@ export function useKeyboardShortcuts(opts: {
   onCancelDraft: () => void;
   onResolveActive: () => void;
 }): void {
-  const handle = useEffectEvent((e: KeyboardEvent) => {
+  // Plain closure — useDocumentEvent's internal effect event keeps `opts` current
+  // without re-subscribing.
+  useDocumentEvent("keydown", (e) => {
     const t = e.target;
     if (t instanceof Element && (t.tagName === "TEXTAREA" || t.tagName === "INPUT")) return;
     if (e.key === "Escape") {
@@ -507,7 +526,6 @@ export function useKeyboardShortcuts(opts: {
     }
     if (e.key === "r" && opts.activeId) opts.onResolveActive();
   });
-  useDocumentEvent("keydown", handle);
 }
 
 // Draggable left-edge resizer for the side panel. Width lives on --miru-panel-w
@@ -515,6 +533,11 @@ export function useKeyboardShortcuts(opts: {
 // variable is enough — no React state, no per-frame re-render. Persisted to
 // localStorage so the chosen width survives reloads.
 const PANEL_W_KEY = "miru:panel-width";
+// Keep in sync with the :root default in miru.css — the fallback when the CSS variable
+// can't be read (e.g. no stylesheet under tests).
+const PANEL_W_DEFAULT = 380;
+// Arrow-key step for the keyboard-focused resizer.
+const PANEL_W_STEP = 16;
 // Lower bound chosen so the header row (open pill + resolved pill + Approve button) doesn't
 // clip Approve off the right edge at the min. Bumped from 320 once the resolved pill gained
 // a "resolved" label for symmetry with "open". Submit-review-while-staging can still squeeze
@@ -529,25 +552,44 @@ function clampPanelWidth(w: number): number {
 function setPanelWidthVar(w: number): void {
   document.documentElement.style.setProperty("--miru-panel-w", `${w}px`);
 }
+function currentPanelWidth(): number {
+  return (
+    parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--miru-panel-w")) ||
+    PANEL_W_DEFAULT
+  );
+}
+
+// Restore the persisted width at module scope — before React mounts — rather than in a
+// mount effect. The bundle is a deferred script so the DOM exists by now; restoring
+// post-mount meant the first paint used the default width and then visibly jumped to
+// the saved one on every page load (frequent under live reload).
+const savedPanelW = Number(localStorage.getItem(PANEL_W_KEY));
+if (Number.isFinite(savedPanelW) && savedPanelW > 0) {
+  setPanelWidthVar(clampPanelWidth(savedPanelW));
+}
 
 export function usePanelResize(): RefObject<HTMLDivElement | null> {
   const ref = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const saved = Number(localStorage.getItem(PANEL_W_KEY));
-    if (Number.isFinite(saved) && saved > 0) setPanelWidthVar(clampPanelWidth(saved));
-  }, []);
-
-  useEffect(() => {
     const el = ref.current;
     if (!el) return;
+    // aria-value* is maintained here rather than in JSX because the width deliberately
+    // isn't React state — the separator announces whatever the CSS variable holds.
+    const apply = (w: number) => {
+      setPanelWidthVar(w);
+      el.setAttribute("aria-valuenow", String(w));
+    };
+    el.setAttribute("aria-valuemin", String(PANEL_W_MIN));
+    el.setAttribute("aria-valuemax", String(Math.floor(window.innerWidth * PANEL_W_MAX_FRACTION)));
+    el.setAttribute("aria-valuenow", String(Math.round(currentPanelWidth())));
     const onDown = (e: PointerEvent) => {
       e.preventDefault();
       el.setPointerCapture(e.pointerId);
       let width = clampPanelWidth(window.innerWidth - e.clientX);
       const onMove = (ev: PointerEvent) => {
         width = clampPanelWidth(window.innerWidth - ev.clientX);
-        setPanelWidthVar(width);
+        apply(width);
       };
       const onUp = () => {
         el.removeEventListener("pointermove", onMove);
@@ -559,8 +601,24 @@ export function usePanelResize(): RefObject<HTMLDivElement | null> {
       el.addEventListener("pointerup", onUp);
       el.addEventListener("pointercancel", onUp);
     };
+    // Keyboard access for the focusable separator: ArrowLeft widens (the panel grows
+    // leftward from the window's right edge), ArrowRight narrows. Same clamp and
+    // persistence as the pointer path.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      e.preventDefault();
+      const w = clampPanelWidth(
+        currentPanelWidth() + (e.key === "ArrowLeft" ? PANEL_W_STEP : -PANEL_W_STEP),
+      );
+      apply(w);
+      localStorage.setItem(PANEL_W_KEY, String(w));
+    };
     el.addEventListener("pointerdown", onDown);
-    return () => el.removeEventListener("pointerdown", onDown);
+    el.addEventListener("keydown", onKey);
+    return () => {
+      el.removeEventListener("pointerdown", onDown);
+      el.removeEventListener("keydown", onKey);
+    };
   }, []);
 
   return ref;

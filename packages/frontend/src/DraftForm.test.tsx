@@ -113,6 +113,43 @@ describe("DraftForm", () => {
     expect(cancelled).toBe(1);
   });
 
+  test("Escape mid-IME-composition is not treated as a form cancel", () => {
+    let cancelled = 0;
+    const { getByRole } = render(
+      <DraftForm draft={draft} onCancel={() => cancelled++} onSubmit={noop} />,
+    );
+    const body = getByRole("textbox", { name: "Comment (markdown)" });
+    body.focus();
+    // user-event can't flag isComposing — dispatch the raw event an IME cancel produces.
+    body.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Escape",
+        isComposing: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    expect(cancelled).toBe(0);
+  });
+
+  test("Cmd/Ctrl+Shift+Enter in the body stages it (draft = true)", async () => {
+    const user = userEvent.setup();
+    const calls: Array<[string, string, boolean]> = [];
+    const { getByRole } = render(
+      <DraftForm
+        draft={draft}
+        onCancel={noop}
+        onSubmit={(b, s, d) => {
+          calls.push([b, s, d]);
+        }}
+      />,
+    );
+    const body = getByRole("textbox", { name: "Comment (markdown)" });
+    await user.type(body, "stage it");
+    await user.type(body, "{Meta>}{Shift>}{Enter}{/Shift}{/Meta}");
+    expect(calls).toEqual([["stage it", "", true]]);
+  });
+
   test("Cmd/Ctrl+Enter in the body submits as Comment (draft = false)", async () => {
     const user = userEvent.setup();
     const calls: Array<[string, string, boolean]> = [];

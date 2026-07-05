@@ -51,9 +51,10 @@ export function Card(props: {
   onHover: (id: string | null) => void;
   onRemove: () => void;
   onToggle: () => void;
-  // Returned promise is awaited so a failed save (server unreachable) keeps the reply form
-  // open with its text intact; parent surfaces the failure via a toast.
-  onReply: (body: string) => Promise<void> | void;
+  // Resolves true when the save landed (close + clear the form), false when it failed —
+  // the parent surfaces the failure via a toast, and the form stays open with its text
+  // intact so the reviewer's words aren't lost to a network blip.
+  onReply: (body: string) => Promise<boolean> | boolean;
 }) {
   const c = props.comment;
   const [replyOpen, setReplyOpen] = useState(false);
@@ -71,18 +72,15 @@ export function Card(props: {
     if (props.active) rootRef.current?.scrollIntoView({ block: "nearest" });
   }, [props.active]);
 
-  // Reply form action: trim, hand off to App, then close. useActionState gives us a
-  // pending flag while the parent's async reply is in flight, so we can disable the
-  // submit and avoid a double-post. On failure the parent surfaces a toast; keep the form
-  // open with its text so the reviewer's words aren't lost to a network blip.
+  // Reply form action: trim, hand off to App, close only on success. useActionState
+  // gives us a pending flag while the parent's async reply is in flight, so we can
+  // disable the submit and avoid a double-post. On failure (false) the parent toasts;
+  // the form keeps its text for a retry.
   const [, replyAction, replying] = useActionState<null, FormData>(async () => {
     if (!trimmed) return null;
-    try {
-      await props.onReply(trimmed);
+    if (await props.onReply(trimmed)) {
       setReplyText("");
       setReplyOpen(false);
-    } catch {
-      /* parent toasts; text stays for retry */
     }
     return null;
   }, null);
