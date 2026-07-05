@@ -1,15 +1,16 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   CorruptedSidecarError,
+  FutureSidecarError,
   loadReview,
   reviewPath,
   saveReview,
+  updateReview,
   type ReviewFile,
 } from "./store.ts";
-import { renderCommentBody } from "./render.ts";
 
 let dir: string;
 
@@ -55,9 +56,6 @@ describe("loadReview", () => {
             end: 1,
           },
           body: "hi",
-          // bodyHtml is a render cache of `body`; loadReview re-derives it, so the
-          // round-trip only holds when the stored HTML matches renderCommentBody(body).
-          bodyHtml: renderCommentBody("hi"),
           suggestion: null,
           status: "sent",
           resolved: false,
@@ -71,11 +69,13 @@ describe("loadReview", () => {
     expect(await loadReview(target)).toEqual(review);
   });
 
-  test("never trusts stored bodyHtml — re-derives it from `body` on load", async () => {
+  test("never persists bodyHtml — zod strips it from the parsed sidecar (F-1)", async () => {
     const target = join(dir, "doc.md");
-    // A hostile git-tracked sidecar: `bodyHtml` carries markup the write path (which
-    // runs renderCommentBody) would never produce. loadReview must not hand it to the
-    // panel verbatim — it re-derives bodyHtml from the plaintext `body`.
+    // A hostile git-tracked sidecar tries to smuggle raw HTML in `bodyHtml`. The
+    // panel injects bodyHtml via dangerouslySetInnerHTML, so anything preserved by
+    // loadReview and then handed to the browser would be an XSS vector. Under F-1
+    // bodyHtml is not on the persisted schema, so zod drops it — the browser only
+    // ever sees the fresh renderCommentBody() output attached at response time.
     const hostile = {
       version: 1,
       target,
@@ -108,13 +108,9 @@ describe("loadReview", () => {
 
     const loaded = await loadReview(target);
     const c = loaded.comments[0]!;
-    expect(c.bodyHtml).toBe(renderCommentBody("benign note"));
-    expect(c.bodyHtml).not.toContain("onerror");
-    expect(c.bodyHtml).not.toContain("position:fixed");
-
+    expect("bodyHtml" in c).toBe(false);
     const r = c.replies[0]!;
-    expect(r.bodyHtml).toBe(renderCommentBody("reply text"));
-    expect(r.bodyHtml).not.toContain("<script");
+    expect("bodyHtml" in r).toBe(false);
   });
 
   test("an older file without `approved` parses with the schema default", async () => {
@@ -143,6 +139,25 @@ describe("loadReview", () => {
     await writeFile(reviewPath(target), JSON.stringify({ version: "one", comments: "lots" }));
     await expect(loadReview(target)).rejects.toBeInstanceOf(CorruptedSidecarError);
   });
+
+  test("sidecar written by a newer miru throws FutureSidecarError (not corruption)", async () => {
+    const target = join(dir, "doc.md");
+    // Version 2 doesn't exist yet — pretend a future miru wrote it. Even if the shape
+    // otherwise happens to match today's schema, the version gate should fire first
+    // so the user gets an "upgrade" message rather than "schema mismatch".
+    await writeFile(
+      reviewPath(target),
+      JSON.stringify({ version: 2, target, approved: false, comments: [] }),
+    );
+    try {
+      await loadReview(target);
+      throw new Error("expected loadReview to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(FutureSidecarError);
+      expect((err as FutureSidecarError).fileVersion).toBe(2);
+      expect((err as FutureSidecarError).path).toBe(reviewPath(target));
+    }
+  });
 });
 
 describe("saveReview", () => {
@@ -170,5 +185,79 @@ describe("saveReview", () => {
     const loaded = await loadReview(target);
     // The last writer wins; what matters is that the file parses (atomic rename).
     expect([true, false]).toContain(loaded.approved);
+  });
+});
+
+describe("updateReview", () => {
+  const mkComment = (id: string) => ({
+    id,
+    anchor: { type: "text" as const, quote: "q", prefix: "p", suffix: "s", start: 0, end: 1 },
+    body: id,
+    suggestion: null,
+    status: "sent" as const,
+    resolved: false,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    pickedUpAt: null,
+    replies: [],
+  });
+
+  test("returns mutate's result and persists the returned review", async () => {
+    const target = join(dir, "doc.md");
+    await saveReview(target, blankReview(target));
+    const returned = await updateReview(target, (r) => ({
+      review: { ...r, approved: true },
+      result: "ok" as const,
+    }));
+    expect(returned).toBe("ok");
+    expect((await loadReview(target)).approved).toBe(true);
+  });
+
+  test("skips saveReview when mutate returns the same review reference", async () => {
+    const target = join(dir, "doc.md");
+    await saveReview(target, blankReview(target));
+    const mtimeBefore = (await stat(reviewPath(target))).mtimeMs;
+    await new Promise((r) => setTimeout(r, 20));
+    await updateReview(target, (r) => ({ review: r, result: undefined }));
+    const mtimeAfter = (await stat(reviewPath(target))).mtimeMs;
+    // No rewrite → mtime unchanged.
+    expect(mtimeAfter).toBe(mtimeBefore);
+  });
+
+  test("concurrent updateReview calls do not lose updates (in-process chain serializes)", async () => {
+    const target = join(dir, "doc.md");
+    await saveReview(target, blankReview(target));
+    const N = 20;
+    // Each mutate appends one comment. Without serialization, load-then-save races
+    // would drop some. With the chain + file lock, every append lands.
+    await Promise.all(
+      Array.from({ length: N }, (_, i) =>
+        updateReview(target, (r) => ({
+          review: { ...r, comments: [...r.comments, mkComment(`c${i}`)] },
+          result: undefined,
+        })),
+      ),
+    );
+    const final = await loadReview(target);
+    expect(final.comments.length).toBe(N);
+    // The set of ids is exactly the ones we asked for (order isn't asserted).
+    expect(new Set(final.comments.map((c) => c.id))).toEqual(
+      new Set(Array.from({ length: N }, (_, i) => `c${i}`)),
+    );
+  });
+
+  test("reclaims a stale lock (crashed prior holder)", async () => {
+    const target = join(dir, "doc.md");
+    await saveReview(target, blankReview(target));
+    const lockFile = `${reviewPath(target)}.lock`;
+    // Simulate a crashed writer: a lock file that's ancient (well past LOCK_STALE_MS = 30s).
+    await writeFile(lockFile, "");
+    const ancient = new Date(Date.now() - 60_000);
+    await utimes(lockFile, ancient, ancient);
+
+    // Fresh call should reclaim and proceed rather than spin out to the fallback.
+    await updateReview(target, (r) => ({ review: { ...r, approved: true }, result: undefined }));
+    expect((await loadReview(target)).approved).toBe(true);
+    // Lock file was released after the operation completed.
+    await expect(stat(lockFile)).rejects.toMatchObject({ code: "ENOENT" });
   });
 });

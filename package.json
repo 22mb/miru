@@ -11,7 +11,7 @@
   "workspaces": ["packages/*"],
   "scripts": {
     "dev": "bun run build:front && bun run packages/cli/src/cli.ts",
-    "build:front": "bun build packages/frontend/src/index.tsx --outfile packages/server/src/assets/miru.js --production && cp packages/frontend/src/miru.css packages/server/src/assets/miru.css",
+    "build:front": "bun build packages/frontend/src/index.tsx --outfile packages/frontend/dist/miru.js --production && cp packages/frontend/src/miru.css packages/frontend/dist/miru.css",
     "build": "bun run build:front && bun build --compile packages/cli/src/cli.ts --outfile miru && bun run scripts/clean-build.ts",
     "bump": "bun run scripts/bump-version.ts",
     "test:server": "bun test packages/server packages/contract packages/cli",

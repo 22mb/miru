@@ -2,7 +2,7 @@
 // renders the panel and the floating draft form. All non-trivial logic lives in
 // hooks.ts (state/SSE/capture/shortcuts) and components/* (presentation).
 import { useActionState, useCallback, useEffect, useRef, useState } from "react";
-import type { ReviewFile } from "@miru/contract";
+import type { HydratedReviewFile } from "@miru/contract";
 import { api } from "./api.ts";
 import { Card } from "./Card.tsx";
 import { DraftForm } from "./DraftForm.tsx";
@@ -18,7 +18,11 @@ import {
   withViewTransition,
 } from "./hooks.ts";
 
-export function App({ initialCommentsPromise }: { initialCommentsPromise: Promise<ReviewFile> }) {
+export function App({
+  initialCommentsPromise,
+}: {
+  initialCommentsPromise: Promise<HydratedReviewFile>;
+}) {
   const c = useComments(initialCommentsPromise);
   const [showResolved, setShowResolved] = useState(false);
   const { draft, clearDraft } = useDraftCapture();

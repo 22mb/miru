@@ -11,7 +11,6 @@ import { z } from "zod";
 // without them a single ~128 MB POST body would be parsed, sanitized, persisted, and
 // re-parsed on every loadReview.
 const PROSE_MAX = 32_000; // body, reply, suggestion replacement
-const BODY_HTML_MAX = 128_000; // sanitized HTML derived from PROSE; ~4x to allow markup expansion
 const SNIPPET_MAX = 4_096; // text-anchor quote/prefix/suffix
 const LABEL_MAX = 2_048; // element-anchor selector/role/name/landmark/textHint, tagChain entry
 const CHAIN_MAX = 256; // tagChain length
@@ -57,7 +56,6 @@ export type Author = z.infer<typeof Author>;
 export const Reply = z.object({
   id: z.string().max(ID_MAX),
   body: z.string().max(PROSE_MAX),
-  bodyHtml: z.string().max(BODY_HTML_MAX),
   createdAt: z.string().max(ISO_DATE_MAX),
   // Default keeps older sidecar files (written before `author` existed) parsing — they
   // were all human replies at the time, since the agent never wrote replies back then.
@@ -81,7 +79,6 @@ export const Comment = z.object({
   id: z.string().max(ID_MAX),
   anchor: Anchor,
   body: z.string().max(PROSE_MAX),
-  bodyHtml: z.string().max(BODY_HTML_MAX),
   suggestion: Suggestion.nullable(),
   status: CommentStatus,
   resolved: z.boolean(),
@@ -95,6 +92,16 @@ export const Comment = z.object({
   replies: z.array(Reply),
 });
 export type Comment = z.infer<typeof Comment>;
+
+// Bump on breaking changes to the sidecar schema. Evolution policy:
+//   - Additive: introduce a new field with `.default(...)`. Old sidecars keep parsing;
+//     no version bump.
+//   - Breaking (removes / retypes / makes-required a field): bump this constant and
+//     add a migration branch in store.loadReview that transforms the older shape
+//     forward.
+// A sidecar whose `version` exceeds this constant surfaces as FutureSidecarError so the
+// user sees "please upgrade miru" instead of a corruption error.
+export const CURRENT_VERSION = 1;
 
 export const ReviewFile = z.object({
   version: z.number().int(),
@@ -126,6 +133,143 @@ export function openForAgent(c: Comment): boolean {
 // Drives `miru next` (the agent loop) — re-notified to "sent" when a human replies.
 export function awaitingAgent(c: Comment): boolean {
   return c.status === "sent" && !c.resolved;
+}
+
+// The agent-facing projection of a review — the external JSON contract emitted by
+// `miru comments --json`, `miru next`, and the final `miru review` output. Centralized
+// here so those three call sites cannot drift (they used to hand-build it three ways).
+// The one rule: staged ("Add to review") replies stay hidden until submitted → draft
+// replies stripped. Since the persisted shape has no bodyHtml (F-1), there's nothing
+// else to hide.
+export type AgentReply = Reply;
+export type AgentComment = Omit<Comment, "replies"> & { replies: AgentReply[] };
+
+export function agentView(
+  review: ReviewFile,
+  filter: (c: Comment) => boolean,
+): { approved: boolean; comments: AgentComment[] } {
+  return {
+    approved: review.approved,
+    comments: review.comments.filter(filter).map((c) => ({
+      ...c,
+      replies: c.replies.filter((r) => !r.draft),
+    })),
+  };
+}
+
+// ---------- wire hydrations (server → browser) ----------
+// The browser panel injects a sanitized HTML render of `body` via
+// dangerouslySetInnerHTML. That HTML is a pure derivation of `body` — cheap to
+// re-render on every response, and *not* persisted (so a hostile committed sidecar
+// can't smuggle markup through). The server attaches `bodyHtml` at response-assembly
+// time using renderCommentBody. Consumers on the browser side (api.ts, Card.tsx,
+// hooks.ts) type API responses with these Hydrated* shapes so bodyHtml stays required.
+export type HydratedReply = Reply & { bodyHtml: string };
+export type HydratedComment = Omit<Comment, "replies"> & {
+  bodyHtml: string;
+  replies: HydratedReply[];
+};
+export type HydratedReviewFile = Omit<ReviewFile, "comments"> & {
+  comments: HydratedComment[];
+};
+
+// ---------- lifecycle transitions (pure) ----------
+// Centralize the state-machine here so server routes and CLI commands cannot drift.
+
+export interface BuildCommentInput {
+  anchor: Anchor;
+  body: string;
+  suggestion: Suggestion | null;
+  draft: boolean;
+}
+
+export function buildComment(input: BuildCommentInput, id: string, createdAt: string): Comment {
+  return {
+    id,
+    anchor: input.anchor,
+    body: input.body,
+    suggestion: input.suggestion,
+    status: input.draft ? "draft" : "sent",
+    resolved: false,
+    createdAt,
+    pickedUpAt: null,
+    replies: [],
+  };
+}
+
+export interface AddReplyInput {
+  id: string;
+  body: string;
+  author: Author;
+  draft: boolean;
+}
+
+// Return a new comment with the reply appended and the author/draft-dependent status
+// transition applied. A staged (draft) reply leaves status/pickedUpAt as-is. A non-draft
+// human reply re-opens the round (status="sent", pickedUpAt=null). A non-draft agent
+// reply answers the round (status="answered"). Approved lives at review scope, so
+// callers pair this with dismissApproval() when a non-draft human reply lands.
+export function addReply(comment: Comment, input: AddReplyInput, createdAt: string): Comment {
+  const reply: Reply = {
+    id: input.id,
+    body: input.body,
+    createdAt,
+    author: input.author,
+    draft: input.draft,
+  };
+  const replies = [...comment.replies, reply];
+  if (input.draft) return { ...comment, replies };
+  if (input.author === "agent") return { ...comment, replies, status: "answered" };
+  return { ...comment, replies, status: "sent", pickedUpAt: null };
+}
+
+// Return a new review with all staged drafts (draft comments and draft replies)
+// promoted to "sent" and pickedUpAt cleared on every touched comment so the fresh
+// round looks unread to the agent. `submitted` is the number of comments promoted —
+// 0 means nothing changed and callers can skip saveReview.
+export function promoteDrafts(review: ReviewFile): { review: ReviewFile; submitted: number } {
+  let submitted = 0;
+  const comments = review.comments.map((c) => {
+    let promoted = c.status === "draft";
+    const replies = c.replies.map((r) => {
+      if (!r.draft) return r;
+      promoted = true;
+      return { ...r, draft: false };
+    });
+    if (!promoted) return c;
+    submitted++;
+    return { ...c, replies, status: "sent" as const, pickedUpAt: null };
+  });
+  return { review: submitted > 0 ? { ...review, comments } : review, submitted };
+}
+
+// Return a new review with pickedUpAt=`now` on every comment whose id is in `ids`.
+// `touched` is false when nothing matched — callers use it to skip saveReview.
+export function stampPickedUp(
+  review: ReviewFile,
+  ids: Set<string>,
+  now: string,
+): { review: ReviewFile; touched: boolean } {
+  let touched = false;
+  const comments = review.comments.map((c) => {
+    if (!ids.has(c.id)) return c;
+    touched = true;
+    return { ...c, pickedUpAt: now };
+  });
+  return { review: touched ? { ...review, comments } : review, touched };
+}
+
+// Return a new review with approved=true. The human's "Approve" verdict — ends the
+// agent loop until fresh feedback dismisses it.
+export function approve(review: ReviewFile): ReviewFile {
+  return { ...review, approved: true };
+}
+
+// Return a new review with approved=false. New feedback (a fresh comment, a promoted
+// draft, a non-draft human reply) unbids a prior "Approve" so the agent sees an
+// active round.
+export function dismissApproval(review: ReviewFile): ReviewFile {
+  return { ...review, approved: false };
 }
 
 export const PatchCommentBody = z.object({

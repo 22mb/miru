@@ -1,8 +1,9 @@
 // Shared fixtures for frontend *.test.tsx.
-import type { Comment, Reply } from "@miru/contract";
+// The panel consumes hydrated wire shapes (bodyHtml required), not the persisted
+// domain types — fixtures reflect that so tests exercise the same shape components see.
+import type { HydratedComment, HydratedReply } from "@miru/contract";
 
-// A Comment with sensible defaults; override any field (including `anchor`) via `over`.
-export function makeComment(over: Partial<Comment> = {}): Comment {
+export function makeComment(over: Partial<HydratedComment> = {}): HydratedComment {
   return {
     id: "c1",
     anchor: { type: "text", quote: "q", prefix: "", suffix: "", start: 0, end: 1 },
@@ -18,7 +19,7 @@ export function makeComment(over: Partial<Comment> = {}): Comment {
   };
 }
 
-export function makeReply(over: Partial<Reply> = {}): Reply {
+export function makeReply(over: Partial<HydratedReply> = {}): HydratedReply {
   return {
     id: "r1",
     body: "r",

@@ -97,8 +97,9 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Build frontend
-        # server.ts text-imports packages/server/src/assets/miru.{js,css}, which are
-        # produced by build:front and gitignored — tests cannot load server.ts without them.
+        # The CLI text-imports packages/frontend/dist/miru.{js,css} (produced by
+        # build:front and gitignored) to hand to the server as assets. The CLI can't
+        # be loaded — and thus not compiled or exercised — until they exist.
         run: bun run build:front
 
       - name: Test

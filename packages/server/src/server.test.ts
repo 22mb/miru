@@ -64,6 +64,9 @@ describe("createServer — auth & routing", () => {
       token: TOKEN,
       nonce: "n0nce",
       port: 0, // OS picks an ephemeral port
+      // Asset contents are irrelevant here; the /__miru__/miru.js/.css routes exist
+      // but no test asserts on their bodies.
+      assets: { js: "", css: "" },
     };
     s = createServer(opts);
     const url = s.server.url;
@@ -186,5 +189,70 @@ describe("createServer — auth & routing", () => {
     expect(body.error).toBe("corrupted sidecar");
     expect(body.path).toBe(`${target}.miru.json`);
     expect(body.detail).toContain("invalid JSON");
+  });
+
+  test("sidecar written by a newer miru → 422 with 'future sidecar' error field", async () => {
+    await writeFile(
+      `${target}.miru.json`,
+      JSON.stringify({ version: 999, target, approved: false, comments: [] }),
+    );
+    const res = await fetch(`${base}/api/comments`, { headers: auth });
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: string; path: string; fileVersion: number };
+    expect(body.error).toBe("future sidecar");
+    expect(body.path).toBe(`${target}.miru.json`);
+    expect(body.fileVersion).toBe(999);
+  });
+
+  test("wire responses hydrate bodyHtml on comments and replies (F-1)", async () => {
+    const create = await fetch(`${base}/api/comments`, {
+      method: "POST",
+      headers: { ...auth, "content-type": "application/json" },
+      body: JSON.stringify({
+        anchor: { type: "text", quote: "q", prefix: "p", suffix: "s", start: 0, end: 1 },
+        body: "hello",
+      }),
+    });
+    expect(create.status).toBe(201);
+    const created = (await create.json()) as { id: string; bodyHtml: string };
+    // POST response is hydrated — the browser reads bodyHtml directly.
+    expect(created.bodyHtml).toContain("hello");
+
+    const patch = await fetch(`${base}/api/comments/${created.id}`, {
+      method: "PATCH",
+      headers: { ...auth, "content-type": "application/json" },
+      body: JSON.stringify({ reply: "**bold reply**" }),
+    });
+    expect(patch.status).toBe(200);
+    const patched = (await patch.json()) as {
+      bodyHtml: string;
+      replies: { bodyHtml: string }[];
+    };
+    // PATCH response is hydrated (comment + every reply).
+    expect(patched.bodyHtml).toContain("hello");
+    expect(patched.replies[0]?.bodyHtml).toContain("<strong>bold reply</strong>");
+
+    const get = await fetch(`${base}/api/comments`, { headers: auth });
+    const list = (await get.json()) as {
+      comments: { bodyHtml: string; replies: { bodyHtml: string }[] }[];
+    };
+    // GET review is hydrated end-to-end.
+    expect(list.comments[0]?.bodyHtml).toContain("hello");
+    expect(list.comments[0]?.replies[0]?.bodyHtml).toContain("<strong>bold reply</strong>");
+  });
+
+  test("persisted sidecar carries no bodyHtml (F-1: single source of truth is `body`)", async () => {
+    await fetch(`${base}/api/comments`, {
+      method: "POST",
+      headers: { ...auth, "content-type": "application/json" },
+      body: JSON.stringify({
+        anchor: { type: "text", quote: "q", prefix: "p", suffix: "s", start: 0, end: 1 },
+        body: "hi",
+      }),
+    });
+    const raw = JSON.parse(await Bun.file(`${target}.miru.json`).text()) as {
+      comments: { bodyHtml?: string }[];
+    };
+    expect(raw.comments[0]?.bodyHtml).toBeUndefined();
   });
 });

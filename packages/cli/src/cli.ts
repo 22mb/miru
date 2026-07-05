@@ -8,19 +8,26 @@ import {
   CorruptedSidecarError,
   createServer,
   detectKind,
+  FutureSidecarError,
   injectUI,
   loadReview as rawLoadReview,
-  renderCommentBody,
   renderDocument,
   reviewPath,
-  saveReview,
   shortId,
+  updateReview,
   watchFile,
   wrapIfFragment,
   type ReviewFile,
 } from "@miru/server";
-import { awaitingAgent, openForAgent, type Comment, type Reply } from "@miru/contract";
+import { addReply, agentView, awaitingAgent, openForAgent, stampPickedUp } from "@miru/contract";
 import skillMd from "./skill/SKILL.md" with { type: "text" };
+// The frontend bundle produced by `bun run build:front`. Text-imported here so the
+// server itself has no reference to the frontend build output — its tests can run
+// without a prior build. `bun build --compile` inlines the bytes into the binary.
+// oxlint-disable-next-line import/no-relative-parent-imports
+import miruJs from "../../frontend/dist/miru.js" with { type: "text" };
+// oxlint-disable-next-line import/no-relative-parent-imports
+import miruCss from "../../frontend/dist/miru.css" with { type: "text" };
 // The version is single-sourced in the repo-root package.json — workspace manifests
 // carry no `version` — so `--version` reads it from there. `bun build --compile`
 // inlines this JSON import into the binary, baking the build-time CalVer in.
@@ -64,8 +71,9 @@ function requireFile(file: string | undefined): string {
   return file;
 }
 
-// Surface a corrupted sidecar as a clean message and exit, rather than crashing with
-// a stack trace. The user fixes the JSON by hand and retries.
+// Surface sidecar data-state problems as a clean message and exit rather than
+// crashing with a stack trace. A corrupted file needs manual repair; a
+// newer-than-us file means the binary is stale and needs upgrading.
 async function loadReview(file: string): Promise<ReviewFile> {
   try {
     return await rawLoadReview(file);
@@ -73,6 +81,10 @@ async function loadReview(file: string): Promise<ReviewFile> {
     if (err instanceof CorruptedSidecarError) {
       console.error(`miru: ${err.message}`);
       console.error("miru: fix the JSON file by hand and retry");
+      process.exit(2);
+    }
+    if (err instanceof FutureSidecarError) {
+      console.error(`miru: ${err.message}`);
       process.exit(2);
     }
     throw err;
@@ -109,7 +121,7 @@ if (command === "comments") {
   const review = await loadReview(file);
   const unresolved = review.comments.filter(openForAgent);
   if (values.json) {
-    console.log(JSON.stringify({ approved: review.approved, comments: unresolved }, null, 2));
+    console.log(JSON.stringify(agentView(review, openForAgent), null, 2));
   } else if (unresolved.length === 0) {
     console.log("No unresolved comments.");
   } else {
@@ -146,58 +158,54 @@ if (command === "install") {
 // ---------- headless: comment (reply / resolve) ----------
 if (command === "comment") {
   const file = requireFile(positionals[1]);
-  const review = await loadReview(file);
   const targetId = values["reply-to"] ?? values.resolve;
   if (!targetId) {
     console.error("miru: --reply-to <id> <body> or --resolve <id> is required");
     process.exit(1);
   }
-  const comment = review.comments.find((c) => c.id === targetId);
-  if (!comment) {
+  // Validate reply-body up front so we don't take the file lock just to reject.
+  const replyBody = values["reply-to"] ? positionals[2] : undefined;
+  if (values["reply-to"] && !replyBody) {
+    console.error("miru: reply body required: miru comment <file> --reply-to <id> <body>");
+    process.exit(1);
+  }
+  const updatedId = await updateReview(file, (loaded) => {
+    const idx = loaded.comments.findIndex((c) => c.id === targetId);
+    if (idx === -1) return { review: loaded, result: null };
+    let comment = loaded.comments[idx]!;
+    if (replyBody !== undefined) {
+      // `miru comment --reply-to` is how the agent loop posts back; the browser never
+      // goes through this path, so the author is always the agent here and the reply
+      // is never staged (addReply flips status to "answered").
+      comment = addReply(
+        comment,
+        { id: shortId("r"), body: replyBody, author: "agent", draft: false },
+        new Date().toISOString(),
+      );
+    }
+    if (values.resolve) comment = { ...comment, resolved: true };
+    return {
+      review: {
+        ...loaded,
+        comments: loaded.comments.map((c, i) => (i === idx ? comment : c)),
+      },
+      result: comment.id,
+    };
+  });
+  if (updatedId === null) {
     console.error(`miru: comment not found: ${targetId}`);
     process.exit(1);
   }
-  if (values["reply-to"]) {
-    const body = positionals[2];
-    if (!body) {
-      console.error("miru: reply body required: miru comment <file> --reply-to <id> <body>");
-      process.exit(1);
-    }
-    const reply: Reply = {
-      id: shortId("r"),
-      body,
-      bodyHtml: renderCommentBody(body),
-      createdAt: new Date().toISOString(),
-      // `miru comment --reply-to` is how the agent loop posts back; the browser
-      // never goes through this path, so the author is always the agent here.
-      author: "agent",
-      // Agent replies are never staged — they are always immediate.
-      draft: false,
-    };
-    comment.replies.push(reply);
-    // The agent has responded → mark answered so `miru next` won't hand it back.
-    comment.status = "answered";
-  }
-  if (values.resolve) comment.resolved = true;
-  await saveReview(file, review);
-  console.log(`updated ${comment.id}`);
+  console.log(`updated ${updatedId}`);
   process.exit(0);
 }
 
 // ---------- headless: next (block until comments await the agent, or it's approved) ----------
 if (command === "next") {
   const file = requireFile(positionals[1]);
-  const snapshot = async () => {
-    const r = await loadReview(file);
-    // Strip staged ("Add to review") replies — the human is still composing them and
-    // /api/review/submit hasn't promoted them yet, so the agent shouldn't react.
-    return {
-      approved: r.approved,
-      comments: r.comments
-        .filter(awaitingAgent)
-        .map((c) => ({ ...c, replies: c.replies.filter((reply) => !reply.draft) })),
-    };
-  };
+  // agentView strips staged ("Add to review") replies and bodyHtml — the human is still
+  // composing drafts and /api/review/submit hasn't promoted them, so the agent shouldn't react.
+  const snapshot = async () => agentView(await loadReview(file), awaitingAgent);
   let s = await snapshot();
   if (!s.approved && s.comments.length === 0) {
     // Watch the directory (not the sidecar itself: saveReview's atomic rename swaps the
@@ -220,15 +228,12 @@ if (command === "next") {
   if (s.comments.length > 0) {
     const ids = new Set(s.comments.map((c) => c.id));
     const now = new Date().toISOString();
-    const review = await loadReview(file);
-    let touched = false;
-    for (const c of review.comments) {
-      if (ids.has(c.id)) {
-        c.pickedUpAt = now;
-        touched = true;
-      }
-    }
-    if (touched) await saveReview(file, review);
+    // stampPickedUp returns the same review reference when nothing matched, so
+    // updateReview's identity check skips the save in that case.
+    await updateReview(file, (loaded) => {
+      const { review } = stampPickedUp(loaded, ids, now);
+      return { review, result: undefined };
+    });
   }
   console.log(JSON.stringify(s, null, 2));
   process.exit(0);
@@ -258,6 +263,7 @@ const { server, finished, setHtml, notifyReload, notifyComments } = createServer
   target: file,
   token,
   nonce,
+  assets: { js: miruJs, css: miruCss },
 });
 
 // Live update: one directory watcher dispatches to source-vs-sidecar changes by
@@ -307,9 +313,8 @@ await finished;
 stopWatch();
 
 const review = await loadReview(file);
-const unresolved: Comment[] = review.comments.filter(openForAgent);
 // Emit the verdict + unresolved comments as JSON on stdout → the AI agent reads/replies/fixes.
-console.log(JSON.stringify({ approved: review.approved, comments: unresolved }, null, 2));
+console.log(JSON.stringify(agentView(review, openForAgent), null, 2));
 
 server.stop();
 process.exit(0);

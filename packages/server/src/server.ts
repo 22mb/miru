@@ -1,16 +1,40 @@
-import miruJs from "./assets/miru.js" with { type: "text" };
-import miruCss from "./assets/miru.css" with { type: "text" };
 import { timingSafeEqual } from "node:crypto";
 import { renderCommentBody } from "./render.ts";
 import {
   CorruptedSidecarError,
+  FutureSidecarError,
   loadReview,
-  saveReview,
+  updateReview,
   type Comment,
   type Reply,
+  type ReviewFile,
 } from "./store.ts";
-import { CreateCommentBody, PatchCommentBody } from "@miru/contract";
+import {
+  addReply,
+  approve,
+  buildComment,
+  CreateCommentBody,
+  dismissApproval,
+  PatchCommentBody,
+  promoteDrafts,
+  type HydratedComment,
+  type HydratedReply,
+  type HydratedReviewFile,
+} from "@miru/contract";
 import { shortId } from "./id.ts";
+
+// Attach a fresh sanitized bodyHtml to the persisted shape before it leaves the
+// server. Not persisted so a hostile committed sidecar can't smuggle markup in — the
+// browser only ever sees renderCommentBody's output.
+function hydrateReply(r: Reply): HydratedReply {
+  return { ...r, bodyHtml: renderCommentBody(r.body) };
+}
+function hydrateComment(c: Comment): HydratedComment {
+  return { ...c, bodyHtml: renderCommentBody(c.body), replies: c.replies.map(hydrateReply) };
+}
+function hydrateReview(r: ReviewFile): HydratedReviewFile {
+  return { ...r, comments: r.comments.map(hydrateComment) };
+}
 
 export interface ServeOptions {
   initialHtml: string;
@@ -18,6 +42,11 @@ export interface ServeOptions {
   token: string;
   nonce: string;
   port: number;
+  // Pre-bundled frontend assets served at /__miru__/miru.js and /__miru__/miru.css.
+  // The CLI text-imports the built files and hands them in — server code stays free of
+  // any dependency on the frontend build graph so `bun test packages/server` runs
+  // without needing the frontend to be built first.
+  assets: { js: string; css: string };
 }
 
 const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
@@ -98,158 +127,209 @@ export function createServer(opts: ServeOptions) {
     }
   }
 
-  // Serialize load-modify-save so two concurrent writes can't clobber each other.
-  let writeLock: Promise<unknown> = Promise.resolve();
-  function withWriteLock<T>(fn: () => Promise<T>): Promise<T> {
-    const run = writeLock.then(fn, fn);
-    writeLock = run.catch(() => {});
-    return run;
+  // ---------- individual route handlers ----------
+
+  function servePage(): Response {
+    return new Response(currentHtml, {
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        "content-security-policy": cspHeader,
+        "x-content-type-options": "nosniff",
+      },
+    });
+  }
+  function serveJs(): Response {
+    return new Response(opts.assets.js, {
+      headers: { "content-type": "text/javascript; charset=utf-8" },
+    });
+  }
+  function serveCss(): Response {
+    return new Response(opts.assets.css, {
+      headers: { "content-type": "text/css; charset=utf-8" },
+    });
+  }
+  function serveEvents(): Response {
+    let client: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        client = controller;
+        sseClients.add(controller);
+        controller.enqueue(encoder.encode(": connected\n\n"));
+      },
+      cancel() {
+        sseClients.delete(client);
+      },
+    });
+    return new Response(stream, {
+      headers: {
+        "content-type": "text/event-stream",
+        "cache-control": "no-cache",
+        connection: "keep-alive",
+      },
+    });
   }
 
-  async function handleApi(req: Request, url: URL): Promise<Response> {
-    // "Approve": record the human verdict and unblock the CLI (resolve after the response).
-    if (req.method === "POST" && url.pathname === "/api/approve") {
-      return withWriteLock(async () => {
-        const review = await loadReview(opts.target);
-        review.approved = true;
-        await saveReview(opts.target, review);
-        broadcast("comments");
-        queueMicrotask(() => resolveFinish());
-        return Response.json({ ok: true });
-      });
-    }
+  async function handleApprove(): Promise<Response> {
+    await updateReview(opts.target, (r) => ({ review: approve(r), result: undefined }));
+    broadcast("comments");
+    queueMicrotask(() => resolveFinish());
+    return Response.json({ ok: true });
+  }
 
+  async function handleListComments(): Promise<Response> {
     // Reads: saveReview is atomic (write-then-rename), so loads need no lock.
-    if (req.method === "GET" && url.pathname === "/api/comments") {
-      return Response.json(await loadReview(opts.target));
-    }
+    return Response.json(hydrateReview(await loadReview(opts.target)));
+  }
 
-    if (req.method === "POST" && url.pathname === "/api/comments") {
-      const parsed = CreateCommentBody.safeParse(await req.json().catch(() => null));
-      if (!parsed.success)
-        return Response.json(
-          { error: "invalid body", issues: parsed.error.issues },
-          { status: 400 },
-        );
-      const input = parsed.data;
-      return withWriteLock(async () => {
-        const review = await loadReview(opts.target);
-        const comment: Comment = {
-          id: shortId("c"),
+  async function handleCreateComment(req: Request): Promise<Response> {
+    const parsed = CreateCommentBody.safeParse(await req.json().catch(() => null));
+    if (!parsed.success)
+      return Response.json({ error: "invalid body", issues: parsed.error.issues }, { status: 400 });
+    const input = parsed.data;
+    const comment = await updateReview(opts.target, (loaded) => {
+      const c = buildComment(
+        {
           anchor: input.anchor,
           body: input.body,
-          bodyHtml: renderCommentBody(input.body),
           suggestion: input.suggestion ?? null,
-          status: input.draft ? "draft" : "sent",
-          resolved: false,
-          createdAt: new Date().toISOString(),
-          pickedUpAt: null,
-          replies: [],
-        };
-        review.comments.push(comment);
-        if (!input.draft) review.approved = false; // new feedback dismisses approval
-        await saveReview(opts.target, review);
-        broadcast("comments");
-        return Response.json(comment, { status: 201 });
-      });
-    }
+          draft: input.draft,
+        },
+        shortId("c"),
+        new Date().toISOString(),
+      );
+      const withComment = { ...loaded, comments: [...loaded.comments, c] };
+      const review = input.draft ? withComment : dismissApproval(withComment);
+      return { review, result: c };
+    });
+    broadcast("comments");
+    return Response.json(hydrateComment(comment), { status: 201 });
+  }
 
-    // "Submit review": promote all staged drafts to sent in one batch.
-    if (req.method === "POST" && url.pathname === "/api/review/submit") {
-      return withWriteLock(async () => {
-        const review = await loadReview(opts.target);
-        let submitted = 0;
-        for (const c of review.comments) {
-          let promoted = c.status === "draft";
-          for (const r of c.replies) {
-            if (r.draft) {
-              r.draft = false;
-              promoted = true;
-            }
-          }
-          if (promoted) {
-            // Both freshly-submitted drafts and follow-up replies re-notify the
-            // agent: status flips to "sent" and the picked-up stamp clears so the
-            // new round looks fresh.
-            c.status = "sent";
-            c.pickedUpAt = null;
-            submitted++;
-          }
-        }
-        if (submitted > 0) {
-          review.approved = false; // new feedback dismisses approval
-          await saveReview(opts.target, review);
-          broadcast("comments");
-        }
-        return Response.json({ submitted });
-      });
-    }
+  async function handleSubmitReview(): Promise<Response> {
+    // Promote all staged drafts to sent in one batch.
+    const submitted = await updateReview(opts.target, (loaded) => {
+      const { review: promoted, submitted } = promoteDrafts(loaded);
+      return {
+        review: submitted > 0 ? dismissApproval(promoted) : promoted,
+        result: submitted,
+      };
+    });
+    if (submitted > 0) broadcast("comments");
+    return Response.json({ submitted });
+  }
 
-    const m = url.pathname.match(/^\/api\/comments\/([\w-]+)$/);
-    if (m) {
-      const id = m[1];
-
-      if (req.method === "PATCH") {
-        const parsed = PatchCommentBody.safeParse(await req.json().catch(() => null));
-        if (!parsed.success)
-          return Response.json(
-            { error: "invalid body", issues: parsed.error.issues },
-            { status: 400 },
-          );
-        const patch = parsed.data;
-        return withWriteLock(async () => {
-          const review = await loadReview(opts.target);
-          const comment = review.comments.find((c) => c.id === id);
-          if (!comment) return Response.json({ error: "not found" }, { status: 404 });
-          if (typeof patch.body === "string") {
-            comment.body = patch.body;
-            comment.bodyHtml = renderCommentBody(patch.body);
-          }
-          if (typeof patch.resolved === "boolean") comment.resolved = patch.resolved;
-          if (patch.suggestion !== undefined) comment.suggestion = patch.suggestion;
-          if (typeof patch.reply === "string") {
-            const draft = patch.replyDraft === true;
-            const reply: Reply = {
-              id: shortId("r"),
-              body: patch.reply,
-              bodyHtml: renderCommentBody(patch.reply),
-              createdAt: new Date().toISOString(),
-              // Browser-originated replies are always the human reviewer; the agent
-              // replies through the CLI (`miru comment --reply-to`), never here.
-              author: "human",
-              draft,
-            };
-            comment.replies.push(reply);
-            // Only a *sent* reply re-notifies the agent. A staged ("Add to review")
-            // reply sits in the comment until /api/review/submit promotes it; until
-            // then the agent neither sees the reply nor has its status/pickedUpAt
-            // changed.
-            if (!draft) {
-              comment.status = "sent";
-              comment.pickedUpAt = null;
-              review.approved = false;
-            }
-          }
-          await saveReview(opts.target, review);
-          broadcast("comments");
-          return Response.json(comment);
-        });
+  async function handlePatchComment(req: Request, id: string): Promise<Response> {
+    const parsed = PatchCommentBody.safeParse(await req.json().catch(() => null));
+    if (!parsed.success)
+      return Response.json({ error: "invalid body", issues: parsed.error.issues }, { status: 400 });
+    const patch = parsed.data;
+    const patched = await updateReview(opts.target, (loaded) => {
+      const idx = loaded.comments.findIndex((c) => c.id === id);
+      if (idx === -1) return { review: loaded, result: null };
+      let comment = loaded.comments[idx]!;
+      if (typeof patch.body === "string") comment = { ...comment, body: patch.body };
+      if (typeof patch.resolved === "boolean") comment = { ...comment, resolved: patch.resolved };
+      if (patch.suggestion !== undefined) comment = { ...comment, suggestion: patch.suggestion };
+      // A non-draft human reply re-opens the round (addReply) *and* dismisses
+      // approval at review scope. A staged (draft) reply changes nothing at either
+      // scope until /api/review/submit promotes it.
+      let approvalDismissed = false;
+      if (typeof patch.reply === "string") {
+        const draft = patch.replyDraft === true;
+        comment = addReply(
+          comment,
+          // Browser-originated replies are always the human reviewer; the agent
+          // replies through the CLI (`miru comment --reply-to`), never here.
+          { id: shortId("r"), body: patch.reply, author: "human", draft },
+          new Date().toISOString(),
+        );
+        if (!draft) approvalDismissed = true;
       }
+      const withPatch: typeof loaded = {
+        ...loaded,
+        comments: loaded.comments.map((c, i) => (i === idx ? comment : c)),
+      };
+      const review = approvalDismissed ? dismissApproval(withPatch) : withPatch;
+      return { review, result: comment };
+    });
+    if (patched === null) return Response.json({ error: "not found" }, { status: 404 });
+    broadcast("comments");
+    return Response.json(hydrateComment(patched));
+  }
 
-      if (req.method === "DELETE") {
-        return withWriteLock(async () => {
-          const review = await loadReview(opts.target);
-          const idx = review.comments.findIndex((c) => c.id === id);
-          if (idx === -1) return Response.json({ error: "not found" }, { status: 404 });
-          review.comments.splice(idx, 1);
-          await saveReview(opts.target, review);
-          broadcast("comments");
-          return Response.json({ ok: true });
-        });
+  async function handleDeleteComment(id: string): Promise<Response> {
+    const deleted = await updateReview(opts.target, (loaded) => {
+      const idx = loaded.comments.findIndex((c) => c.id === id);
+      if (idx === -1) return { review: loaded, result: false };
+      return {
+        review: { ...loaded, comments: loaded.comments.filter((c) => c.id !== id) },
+        result: true,
+      };
+    });
+    if (!deleted) return Response.json({ error: "not found" }, { status: 404 });
+    broadcast("comments");
+    return Response.json({ ok: true });
+  }
+
+  // ---------- declarative route table ----------
+  // Every route makes its auth requirement explicit — `public` skips the token gate,
+  // `token` enforces it. Grep-visible exemptions (SSE, static assets, the panel HTML)
+  // replace the previous "if you fall past the /api/ auth block, you're public" trick.
+  // Match-order in the array is the tie-breaker only for overlapping patterns; the
+  // current set has none.
+  type RouteMatch = RegExpMatchArray | null;
+  interface Route {
+    method: string;
+    pattern: string | RegExp;
+    auth: "public" | "token";
+    handler: (req: Request, match: RouteMatch) => Response | Promise<Response>;
+  }
+  const COMMENT_ID_PATH = /^\/api\/comments\/([\w-]+)$/;
+  const routes: Route[] = [
+    { method: "GET", pattern: "/", auth: "public", handler: () => servePage() },
+    { method: "GET", pattern: "/__miru__/miru.js", auth: "public", handler: () => serveJs() },
+    { method: "GET", pattern: "/__miru__/miru.css", auth: "public", handler: () => serveCss() },
+    // SSE only pushes "reload"/"comments" hints (no data) — Host/Origin is still enforced.
+    { method: "GET", pattern: "/api/events", auth: "public", handler: () => serveEvents() },
+    { method: "POST", pattern: "/api/approve", auth: "token", handler: () => handleApprove() },
+    { method: "GET", pattern: "/api/comments", auth: "token", handler: () => handleListComments() },
+    {
+      method: "POST",
+      pattern: "/api/comments",
+      auth: "token",
+      handler: (req) => handleCreateComment(req),
+    },
+    {
+      method: "POST",
+      pattern: "/api/review/submit",
+      auth: "token",
+      handler: () => handleSubmitReview(),
+    },
+    {
+      method: "PATCH",
+      pattern: COMMENT_ID_PATH,
+      auth: "token",
+      handler: (req, m) => handlePatchComment(req, m![1]!),
+    },
+    {
+      method: "DELETE",
+      pattern: COMMENT_ID_PATH,
+      auth: "token",
+      handler: (_, m) => handleDeleteComment(m![1]!),
+    },
+  ];
+
+  function matchRoute(req: Request, url: URL): { route: Route; match: RouteMatch } | null {
+    for (const route of routes) {
+      if (route.method !== req.method) continue;
+      if (typeof route.pattern === "string") {
+        if (route.pattern === url.pathname) return { route, match: null };
+      } else {
+        const m = url.pathname.match(route.pattern);
+        if (m) return { route, match: m };
       }
     }
-
-    return Response.json({ error: "bad request" }, { status: 400 });
+    return null;
   }
 
   const server = Bun.serve({
@@ -267,71 +347,32 @@ export function createServer(opts: ServeOptions) {
     async fetch(req) {
       const url = new URL(req.url);
       if (!isLocalRequest(req)) return new Response("forbidden", { status: 403 });
-
-      if (url.pathname === "/") {
-        return new Response(currentHtml, {
-          headers: {
-            "content-type": "text/html; charset=utf-8",
-            "content-security-policy": cspHeader,
-            "x-content-type-options": "nosniff",
-          },
-        });
-      }
-      if (url.pathname === "/__miru__/miru.js") {
-        return new Response(miruJs, {
-          headers: { "content-type": "text/javascript; charset=utf-8" },
-        });
-      }
-      if (url.pathname === "/__miru__/miru.css") {
-        return new Response(miruCss, {
-          headers: { "content-type": "text/css; charset=utf-8" },
-        });
-      }
-
-      // Server-Sent Events for live updates. No token required (it only pushes
-      // "reload"/"comments" hints, no data) but Host/Origin is still enforced above.
-      if (url.pathname === "/api/events") {
-        let client: ReadableStreamDefaultController<Uint8Array>;
-        const stream = new ReadableStream<Uint8Array>({
-          start(controller) {
-            client = controller;
-            sseClients.add(controller);
-            controller.enqueue(encoder.encode(": connected\n\n"));
-          },
-          cancel() {
-            sseClients.delete(client);
-          },
-        });
-        return new Response(stream, {
-          headers: {
-            "content-type": "text/event-stream",
-            "cache-control": "no-cache",
-            connection: "keep-alive",
-          },
-        });
-      }
-
-      if (url.pathname.startsWith("/api/")) {
-        if (!tokensEqual(req.headers.get("x-miru-token") ?? "", opts.token)) {
-          return new Response("unauthorized", { status: 401 });
+      const matched = matchRoute(req, url);
+      if (!matched) return new Response("not found", { status: 404 });
+      const { route, match } = matched;
+      if (route.auth === "token" && !tokensEqual(req.headers.get("x-miru-token") ?? "", opts.token))
+        return new Response("unauthorized", { status: 401 });
+      try {
+        return await route.handler(req, match);
+      } catch (err) {
+        // Sidecar data-state problems (corruption / newer schema) aren't server bugs:
+        // surface them as 422 with a distinguishable error field so the user fixes the
+        // file — or upgrades miru — instead of seeing a bare 500. Anything else still
+        // propagates to Bun's default 500.
+        if (err instanceof CorruptedSidecarError) {
+          return Response.json(
+            { error: "corrupted sidecar", path: err.path, detail: err.detail },
+            { status: 422 },
+          );
         }
-        try {
-          return await handleApi(req, url);
-        } catch (err) {
-          // A corrupted sidecar is a data-state problem, not a server bug: surface a
-          // 422 with the path so the user fixes the file by hand instead of seeing a
-          // bare 500. Anything else still propagates to Bun's default 500.
-          if (err instanceof CorruptedSidecarError) {
-            return Response.json(
-              { error: "corrupted sidecar", path: err.path, detail: err.detail },
-              { status: 422 },
-            );
-          }
-          throw err;
+        if (err instanceof FutureSidecarError) {
+          return Response.json(
+            { error: "future sidecar", path: err.path, fileVersion: err.fileVersion },
+            { status: 422 },
+          );
         }
+        throw err;
       }
-
-      return new Response("not found", { status: 404 });
     },
   });
 

@@ -17,7 +17,7 @@ import {
   useState,
 } from "react";
 import { flushSync } from "react-dom";
-import type { Anchor, Comment, ReviewFile } from "@miru/contract";
+import type { Anchor, HydratedComment, HydratedReviewFile } from "@miru/contract";
 import { buildElementAnchor, buildTextAnchor, isStale, scrollToComment } from "./anchor.ts";
 import { api } from "./api.ts";
 import type { Draft } from "./DraftForm.tsx";
@@ -81,7 +81,7 @@ export function useDocumentEvent<K extends keyof DocumentEventMap>(
 }
 
 export interface CommentsApi {
-  comments: Comment[];
+  comments: HydratedComment[];
   staleIds: Set<string>;
   // IDs that just received a NEW agent reply (compared to the previous comment-set).
   // Cards drive a brief pulse off this — auto-cleared after FRESH_REPLY_MS.
@@ -89,7 +89,7 @@ export interface CommentsApi {
   reload: () => Promise<void>;
   submit: (anchor: Anchor, body: string, suggestion: string, asDraft: boolean) => Promise<void>;
   remove: (id: string) => Promise<void>;
-  toggleResolved: (c: Comment) => Promise<void>;
+  toggleResolved: (c: HydratedComment) => Promise<void>;
   reply: (id: string, body: string) => Promise<void>;
   submitReview: () => Promise<void>;
   focusComment: (id: string, scroll?: boolean) => void;
@@ -105,16 +105,16 @@ const FRESH_REPLY_MS = 8000;
 // empty array + a useEffect refetch. The promise is owned by the caller (above the
 // Suspense boundary) — creating it inside would re-fire on every Suspense remount and
 // loop forever. Subsequent reloads just setComments.
-export function useComments(initialPromise: Promise<ReviewFile>): CommentsApi {
+export function useComments(initialPromise: Promise<HydratedReviewFile>): CommentsApi {
   const initial = use(initialPromise);
-  const [comments, setComments] = useState<Comment[]>(initial.comments);
+  const [comments, setComments] = useState<HydratedComment[]>(initial.comments);
   const [activeId, setActiveId] = useState<string | null>(null);
   // Set of comment IDs whose reply count just grew with an agent reply. Cards subscribe
   // to this to drive a brief pulse — auto-cleared per-id after FRESH_REPLY_MS.
   const [freshReplyIds, setFreshReplyIds] = useState<Set<string>>(() => new Set());
   // Last-seen comments snapshot for diffing against a fresh server reload. Kept in a ref
   // because we read it inside `reload` without wanting to recreate the callback every render.
-  const prevCommentsRef = useRef<Comment[]>(initial.comments);
+  const prevCommentsRef = useRef<HydratedComment[]>(initial.comments);
   // Active fade-out timers, keyed by comment id, so a second reply arriving before the
   // first timer fires extends the pulse instead of double-scheduling.
   const freshTimersRef = useRef<Map<string, number>>(new Map());
@@ -192,7 +192,7 @@ export function useComments(initialPromise: Promise<ReviewFile>): CommentsApi {
   );
 
   const toggleResolved = useCallback(
-    async (c: Comment) => {
+    async (c: HydratedComment) => {
       await api.patchComment(c.id, { resolved: !c.resolved });
       await reload();
     },
@@ -431,7 +431,7 @@ export function useLiveReload(onCommentsChange: () => void, reloadDeferred = fal
 // Panel-wide keyboard shortcuts. Suppressed while the user is typing in a textarea
 // or input (so j/k inside a reply form behave as letters, not navigation).
 export function useKeyboardShortcuts(opts: {
-  comments: Comment[];
+  comments: HydratedComment[];
   activeId: string | null;
   focusComment: (id: string) => void;
   onCancelDraft: () => void;
