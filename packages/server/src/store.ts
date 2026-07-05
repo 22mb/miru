@@ -1,5 +1,6 @@
 import { rename, writeFile } from "node:fs/promises";
 import { ReviewFile } from "@miru/contract";
+import { renderCommentBody } from "./render.ts";
 
 export type { Anchor, Comment, ElementAnchor, Reply, ReviewFile, TextAnchor } from "@miru/contract";
 
@@ -37,7 +38,19 @@ export async function loadReview(target: string): Promise<ReviewFile> {
   if (!parsed.success) {
     throw new CorruptedSidecarError(path, `schema mismatch: ${parsed.error.message}`);
   }
-  return parsed.data;
+  // `bodyHtml` is sanitized only when a comment is *written*. Sidecars are git-tracked
+  // and ship with the repo, so a cloned hostile `.miru.json` can carry arbitrary HTML in
+  // `bodyHtml` that the panel injects via dangerouslySetInnerHTML — a path where
+  // sanitize-html is otherwise absent. Re-derive it from the plaintext `body` on every
+  // load so stored HTML is never trusted: `body` is the single source of truth,
+  // `bodyHtml` is a render cache. Honest data is unchanged (the write path produced it
+  // the same way); a mutation-then-save heals the sidecar on disk.
+  const review = parsed.data;
+  for (const c of review.comments) {
+    c.bodyHtml = renderCommentBody(c.body);
+    for (const r of c.replies) r.bodyHtml = renderCommentBody(r.body);
+  }
+  return review;
 }
 
 /** Write to a temp file then rename, so the save is atomic. */
