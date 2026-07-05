@@ -78,6 +78,7 @@ miru review <file.md|.html>
 | `miru comment <file> --resolve <id>` | コメントを解決済みにする。 |
 | `miru next <file>` | コメントがエージェント待ちになるか、ユーザーが承認するまでブロックし、JSON として出力する（`next` → 修正 → 返信のエージェントループ）。 |
 | `miru install [claude-code]` | 同梱スキルを `~/.claude/skills/miru/SKILL.md` にインストールする。 |
+| `miru --version`（`-v`） | 埋め込まれたビルドバージョンを表示して終了する。 |
 
 ### AI エージェントから利用する
 
