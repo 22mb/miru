@@ -5,7 +5,7 @@ paths:
 
 # server (packages/server) — testing rules
 
-Runner is **`bun test`** (built-in, Jest-like `describe` / `test` / `expect`). Colocate as `*.test.ts` next to the unit (e.g. `packages/server/src/export.test.ts`).
+Runner is **`bun test`** (built-in, Jest-like `describe` / `test` / `expect`). Colocate as `*.test.ts` next to the unit (e.g. `packages/server/src/store.test.ts`).
 
 - **Cover pure logic and the security boundary first** — highest value:
   - `render.ts` — markdown→HTML, and that sanitization strips `<script>` / `on*=` / `<iframe>` (security-critical); `--unsafe-raw` bypasses it.

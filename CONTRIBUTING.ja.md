@@ -19,19 +19,19 @@ bun install        # lefthook 経由で git hook も同時に有効化されま�
 リポジトリは 4 つのパッケージを持つ Bun ワークスペースです。
 
 - **`packages/contract`**：zod スキーマと `z.infer` 型。ワイヤ形式と永続化形式の単一の出所であり、server と frontend の両方で共有します
-- **`packages/server`**：Bun 製のレビューサーバーとドメインヘルパー（render、inject、store、export、watch）。CLI から利用されます
-- **`packages/cli`**：`miru` CLI 本体（`miru review` / `next` / `export` など）。`@miru/server` の上に構築されています
-- **`packages/frontend`**：React 製の UI。バンドルしてサーバーバイナリに埋め込みます
+- **`packages/server`**：Bun 製のレビューサーバーとドメインヘルパー（render、inject、store、watch）。CLI から利用されます
+- **`packages/cli`**：`miru` CLI 本体（`miru review` / `next` / `comment` など）。`@miru/server` の上に構築されています
+- **`packages/frontend`**：React 製の UI。バンドルして `miru` バイナリに埋め込みます
 
 ## 開発
 
 ```sh
 bun run dev review examples/sample.md   # ソースから CLI を実行
-bun run build:front                     # packages/frontend → packages/server/src/assets/miru.{js,css}
+bun run build:front                     # packages/frontend/src → packages/frontend/dist/miru.{js,css}
 bun run build                           # 単一バイナリ ./miru をコンパイル（アセット埋め込み）
 ```
 
-frontend はサーバーに埋め込まれます。
+frontend のバンドルはビルド時に CLI へ埋め込まれます（`packages/frontend/dist` の text import）。
 そのため、frontend を変更したら、バイナリや `miru review` で確認する前に `build:front` を再実行してください。
 
 ## PR を開く前に

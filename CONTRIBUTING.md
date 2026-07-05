@@ -20,21 +20,22 @@ The repo is a Bun workspace with four packages:
 
 - **`packages/contract`** — zod schemas + `z.infer` types. The single source of truth for every
   wire / persisted shape, shared by server and frontend.
-- **`packages/server`** — the Bun review server + domain helpers (render / inject / store / export /
-  watch), consumed by the CLI.
-- **`packages/cli`** — the `miru` CLI (`miru review` / `next` / `export` / …), built on `@miru/server`.
-- **`packages/frontend`** — the React UI, bundled and embedded into the server binary.
+- **`packages/server`** — the Bun review server + domain helpers (render / inject / store / watch),
+  consumed by the CLI.
+- **`packages/cli`** — the `miru` CLI (`miru review` / `next` / `comment` / …), built on `@miru/server`.
+- **`packages/frontend`** — the React UI, bundled and embedded into the `miru` binary.
 
 ## Development
 
 ```sh
 bun run dev review examples/sample.md   # run the CLI from source
-bun run build:front                     # packages/frontend → packages/server/src/assets/miru.{js,css}
+bun run build:front                     # packages/frontend/src → packages/frontend/dist/miru.{js,css}
 bun run build                           # compile the single binary ./miru (assets embedded)
 ```
 
-The frontend is bundled into the server, so rebuild it (`build:front`) after frontend changes
-before testing the binary or `miru review`.
+The frontend bundle is embedded into the CLI at build time (text imports of
+`packages/frontend/dist`), so rebuild it (`build:front`) after frontend changes before testing
+the binary or `miru review`.
 
 ## Before you open a PR
 
