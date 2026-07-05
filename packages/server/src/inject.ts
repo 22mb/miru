@@ -1,6 +1,10 @@
 import type { SourceKind } from "./render.ts";
 
-function template(title: string, body: string, lang: string): string {
+function template(title: string, body: string, lang: string, kind: SourceKind): string {
+  // Markdown gets miru's typographic decoration via the `--md` modifier; HTML keeps
+  // the plain wrap and renders with its own / UA styles — "what a normal browser tab
+  // shows" is the fidelity target for HTML input.
+  const cls = kind === "markdown" ? "miru-doc miru-doc--md" : "miru-doc";
   return `<!DOCTYPE html>
 <html lang="${Bun.escapeHTML(lang)}">
 <head>
@@ -9,7 +13,7 @@ function template(title: string, body: string, lang: string): string {
 <title>${Bun.escapeHTML(title)}</title>
 </head>
 <body>
-<main class="miru-doc">
+<main class="${cls}">
 ${body}
 </main>
 </body>
@@ -24,7 +28,9 @@ export function wrapIfFragment(
   title: string,
   lang: string,
 ): string {
-  if (kind === "markdown" || !/<body[\s>]/i.test(html)) return template(title, html, lang);
+  // Sanitized output never contains <body> (the sanitizer drops it), so both tiers
+  // always take the template branch — only --unsafe-raw full documents keep their own.
+  if (kind === "markdown" || !/<body[\s>]/i.test(html)) return template(title, html, lang, kind);
   return html.replace(
     /(<body[^>]*>)([\s\S]*?)(<\/body>)/i,
     (_m, open: string, inner: string, close: string) =>

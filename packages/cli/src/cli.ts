@@ -18,6 +18,7 @@ import {
   watchFile,
   wrapIfFragment,
   type ReviewFile,
+  type SanitizeTier,
 } from "@miru/server";
 import { addReply, agentView, awaitingAgent, openForAgent, stampPickedUp } from "@miru/contract";
 import skillMd from "./skill/SKILL.md" with { type: "text" };
@@ -35,7 +36,7 @@ import miruCss from "../../frontend/dist/miru.css" with { type: "text" };
 import pkg from "../../../package.json" with { type: "json" };
 
 const USAGE = `usage:
-  miru review <file.md|.html> [--port N] [--no-open] [--unsafe-raw] [--lang L]
+  miru review <file.md|.html> [--port N] [--no-open] [--strict|--unsafe-raw] [--lang L]
       Review in the browser. Stays up; pressing "Approve" prints {approved, comments}
       as JSON to stdout and exits.
   miru comments <file> [--json]
@@ -97,6 +98,7 @@ const { positionals, values } = parseArgs({
     port: { type: "string", default: "0" },
     "no-open": { type: "boolean", default: false },
     "unsafe-raw": { type: "boolean", default: false },
+    strict: { type: "boolean", default: false },
     lang: { type: "string", default: "en" },
     json: { type: "boolean", default: false },
     "reply-to": { type: "string" },
@@ -246,6 +248,14 @@ if (command !== "review") {
 }
 const file = requireFile(positionals[1]);
 
+if (values.strict && values["unsafe-raw"]) {
+  console.error("miru: --strict and --unsafe-raw are mutually exclusive");
+  process.exit(1);
+}
+// default = presentation-permissive (executable bits still closed), --strict =
+// typography-only (the old default), --unsafe-raw = no sanitization at all.
+const tier: SanitizeTier = values["unsafe-raw"] ? "raw" : values.strict ? "strict" : "default";
+
 const token = randomBytes(24).toString("hex");
 const nonce = randomBytes(16).toString("base64");
 
@@ -253,7 +263,7 @@ const nonce = randomBytes(16).toString("base64");
 const renderHtml = (): string => {
   const content = readFileSync(file, "utf8");
   const kind = detectKind(file);
-  const rendered = renderDocument(content, kind, { unsafeRaw: values["unsafe-raw"] });
+  const rendered = renderDocument(content, kind, tier);
   return injectUI(wrapIfFragment(rendered, kind, basename(file), values.lang), { token, nonce });
 };
 

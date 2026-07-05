@@ -46,7 +46,10 @@ const DRAFT_WIDTH = 440;
 // caret in limbo — IME input stops working until the user manually refocuses). The
 // animation is a nicety; correct text input is not.
 function isEditing(): boolean {
-  const a = document.activeElement;
+  // Dig through shadow roots: at document level a focused element inside the panel's
+  // shadow tree is reported as the #miru-root host, which would defeat this guard.
+  let a: Element | null = document.activeElement;
+  while (a?.shadowRoot?.activeElement) a = a.shadowRoot.activeElement;
   return !!a && (a.tagName === "TEXTAREA" || a.tagName === "INPUT");
 }
 export function withViewTransition(cb: () => void): void {
@@ -509,7 +512,9 @@ export function useKeyboardShortcuts(opts: {
   // Plain closure — useDocumentEvent's internal effect event keeps `opts` current
   // without re-subscribing.
   useDocumentEvent("keydown", (e) => {
-    const t = e.target;
+    // composedPath()[0], not target: keydown inside the panel's shadow tree retargets
+    // to the #miru-root host at document level, which would let j/k/r fire mid-typing.
+    const t = e.composedPath()[0];
     if (t instanceof Element && (t.tagName === "TEXTAREA" || t.tagName === "INPUT")) return;
     if (e.key === "Escape") {
       opts.onCancelDraft();

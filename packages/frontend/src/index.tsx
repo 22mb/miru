@@ -10,6 +10,7 @@ import { api } from "./api.ts";
 import { App } from "./App.tsx";
 import { consumePreReloadText, diffRange, DOC, docText } from "./dom.ts";
 import { popoverRef } from "./hooks.ts";
+import panelCss from "./panel.css" with { type: "text" };
 
 const initialCommentsPromise = api.listComments();
 
@@ -46,9 +47,21 @@ class PanelErrorBoundary extends Component<{ children: ReactNode }, { failed: bo
 const mount = document.createElement("div");
 mount.id = "miru-root";
 document.body.appendChild(mount);
+// The panel renders inside a shadow root: unlayered document CSS beats every light-DOM
+// @layer (see the miru.css header), so a shadow boundary is the only thing that keeps a
+// reviewed document's <style> from restyling or spoofing the panel. Styles ship inside
+// the JS bundle (text import) as a constructed sheet — no extra route, no FOUC.
+// Document-level listeners see events from in here retargeted to the #miru-root host;
+// handlers that need the real target use composedPath() (hooks.ts, App.tsx).
+const shadow = mount.attachShadow({ mode: "open" });
+const sheet = new CSSStyleSheet();
+sheet.replaceSync(panelCss);
+shadow.adoptedStyleSheets = [sheet];
+const container = document.createElement("div");
+shadow.appendChild(container);
 // StrictMode is dev-build-only double-invocation insurance for the effect-heavy hooks
 // (subscriptions, imperative paints); the production bundle makes it a no-op.
-createRoot(mount).render(
+createRoot(container).render(
   <StrictMode>
     <PanelErrorBoundary>
       <Suspense fallback={null}>

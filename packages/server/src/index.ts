@@ -10,7 +10,13 @@ export {
   updateReview,
 } from "./store.ts";
 export type { Anchor, Comment, ElementAnchor, Reply, ReviewFile, TextAnchor } from "./store.ts";
-export { detectKind, renderCommentBody, renderDocument, type SourceKind } from "./render.ts";
+export {
+  detectKind,
+  renderCommentBody,
+  renderDocument,
+  type SanitizeTier,
+  type SourceKind,
+} from "./render.ts";
 export { injectUI, wrapIfFragment } from "./inject.ts";
 export { watchFile } from "./watch.ts";
 export { shortId } from "./id.ts";
