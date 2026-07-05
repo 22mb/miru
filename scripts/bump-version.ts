@@ -1,8 +1,9 @@
 #!/usr/bin/env bun
 import { readFileSync, writeFileSync } from "node:fs";
-import { Glob } from "bun";
 
-const targets = ["package.json", ...new Glob("packages/*/package.json").scanSync()];
+// Version lives in exactly one place: the root package.json. Workspace manifests
+// carry no `version` (they are private and consumed only via `workspace:*`), so
+// there is nothing to keep in sync and no way for the values to drift apart.
 const versionRe = /^(\s*"version":\s*")([^"]+)(")/m;
 
 const rootRaw = readFileSync("package.json", "utf8");
@@ -21,8 +22,5 @@ if (current === base) {
   next = base;
 }
 
-for (const path of targets) {
-  const raw = readFileSync(path, "utf8");
-  writeFileSync(path, raw.replace(versionRe, `$1${next}$3`));
-}
-console.log(`${current} -> ${next} (${targets.length} files)`);
+writeFileSync("package.json", rootRaw.replace(versionRe, `$1${next}$3`));
+console.log(`${current} -> ${next}`);
