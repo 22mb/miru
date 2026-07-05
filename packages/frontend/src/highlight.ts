@@ -4,6 +4,28 @@ import type { Anchor, Comment } from "@miru/contract";
 import { findTextOffsets, resolveElement } from "./anchor.ts";
 import { buildTextIndex, DOC, rangeFromIndex } from "./dom.ts";
 
+// Transient "the agent just changed this" highlight, painted right after a live reload.
+// Pass a { start, end } computed by diffRange over pre-reload vs current docText, or null
+// to clear. Same Custom Highlight machinery as applyDraftHighlight — a separate name so
+// its CSS style is independent (a warm amber that reads as "look here" without conflicting
+// with the anchored-comment yellow).
+export function applyChangedHighlight(range: { start: number; end: number } | null): void {
+  const root = DOC();
+  const ranges: Range[] = [];
+  if (range) {
+    const idx = buildTextIndex(root);
+    const r = rangeFromIndex(idx, range.start, range.end);
+    if (r) ranges.push(r);
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const HL = (globalThis as any).Highlight;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const css = CSS as any;
+  if (HL && css.highlights) {
+    css.highlights.set("miru-changed", new HL(...ranges));
+  }
+}
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export function applyHighlights(comments: Comment[], activeId: string | null): void {
   const root = DOC();

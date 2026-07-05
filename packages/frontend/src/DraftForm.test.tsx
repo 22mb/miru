@@ -18,7 +18,13 @@ describe("DraftForm", () => {
     const user = userEvent.setup();
     const calls: Array<[string, string, boolean]> = [];
     const { getByRole } = render(
-      <DraftForm draft={draft} onCancel={noop} onSubmit={(b, s, d) => calls.push([b, s, d])} />,
+      <DraftForm
+        draft={draft}
+        onCancel={noop}
+        onSubmit={(b, s, d) => {
+          calls.push([b, s, d]);
+        }}
+      />,
     );
     await user.type(getByRole("textbox", { name: "Comment (markdown)" }), "now");
     await user.click(getByRole("button", { name: "Comment" }));
@@ -29,7 +35,13 @@ describe("DraftForm", () => {
     const user = userEvent.setup();
     const calls: Array<[string, string, boolean]> = [];
     const { getByRole } = render(
-      <DraftForm draft={draft} onCancel={noop} onSubmit={(b, s, d) => calls.push([b, s, d])} />,
+      <DraftForm
+        draft={draft}
+        onCancel={noop}
+        onSubmit={(b, s, d) => {
+          calls.push([b, s, d]);
+        }}
+      />,
     );
     await user.type(getByRole("textbox", { name: "Comment (markdown)" }), "later");
     await user.click(getByRole("button", { name: "Add to review" }));
@@ -52,7 +64,13 @@ describe("DraftForm", () => {
     const user = userEvent.setup();
     const calls: Array<[string, string, boolean]> = [];
     const { getByRole } = render(
-      <DraftForm draft={draft} onCancel={noop} onSubmit={(b, s, d) => calls.push([b, s, d])} />,
+      <DraftForm
+        draft={draft}
+        onCancel={noop}
+        onSubmit={(b, s, d) => {
+          calls.push([b, s, d]);
+        }}
+      />,
     );
     const comment = getByRole("button", { name: "Comment" }) as HTMLButtonElement;
     expect(comment.disabled).toBe(true);
@@ -75,6 +93,14 @@ describe("DraftForm", () => {
     expect(cancelled).toBe(1);
   });
 
+  test("the Comment textarea receives focus as soon as the form mounts", () => {
+    const { getByRole } = render(<DraftForm draft={draft} onCancel={noop} onSubmit={noop} />);
+    // The popover ref callback focuses the body textarea after showPopover — pre-fix,
+    // React's autoFocus fired while the popover was still display:none, so focus
+    // silently dropped and users had to click into the composer before typing.
+    expect(document.activeElement).toBe(getByRole("textbox", { name: "Comment (markdown)" }));
+  });
+
   test("Escape from the body textarea fires onCancel (matches the Cancel button's kbd hint)", async () => {
     const user = userEvent.setup();
     let cancelled = 0;
@@ -91,7 +117,13 @@ describe("DraftForm", () => {
     const user = userEvent.setup();
     const calls: Array<[string, string, boolean]> = [];
     const { getByRole } = render(
-      <DraftForm draft={draft} onCancel={noop} onSubmit={(b, s, d) => calls.push([b, s, d])} />,
+      <DraftForm
+        draft={draft}
+        onCancel={noop}
+        onSubmit={(b, s, d) => {
+          calls.push([b, s, d]);
+        }}
+      />,
     );
     const body = getByRole("textbox", { name: "Comment (markdown)" });
     await user.type(body, "ship it");

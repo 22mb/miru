@@ -133,6 +133,13 @@
   ::highlight(miru-preview) {
     background: var(--miru-hl-draft);
   }
+  /* "What the agent just changed" transient highlight — warm amber, distinct from the
+     comment yellow so the reviewer's eye lands on it without confusing it for an anchor.
+     Cleared in JS after CHANGED_FLASH_MS; no CSS animation because ::highlight only
+     supports color / background / text-decoration / text-shadow. */
+  ::highlight(miru-changed) {
+    background: color-mix(in srgb, var(--miru-stale) 45%, transparent);
+  }
 
   kbd {
     background: var(--miru-hover-bg);
@@ -453,6 +460,15 @@
     color: var(--miru-accent);
     border-color: var(--miru-accent);
   }
+  /* --replied : agent has answered and the human hasn't acted yet. Uses the success tone
+     rather than the accent so it reads as "your turn" (a positive nudge) instead of
+     "still processing". Solid dot — no pulse — because the required action is on the
+     human, not the machine; the state doesn't change on its own. */
+  .miru-status--replied {
+    color: var(--miru-success);
+    border-color: var(--miru-success);
+    background: var(--miru-success-bg);
+  }
   .miru-status__dot {
     width: 6px;
     height: 6px;
@@ -712,6 +728,83 @@
     }
     &[data-armed]:hover:not(:disabled) {
       background: color-mix(in srgb, black 8%, var(--miru-stale));
+    }
+  }
+
+  /* Chip announcing a live reload landed a change from the agent. Positioned near the
+     top of the doc (not on the panel) so the reviewer's eye starts near the reload point
+     rather than in the sidebar. Auto-hides after CHANGED_FLASH_MS via App state. */
+  .miru-changed-chip {
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    background: var(--miru-stale);
+    color: var(--miru-on-accent);
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: -apple-system, system-ui, sans-serif;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+    transition:
+      opacity var(--miru-dur) var(--miru-ease),
+      translate var(--miru-dur) var(--miru-ease);
+    opacity: 1;
+    translate: 0 0;
+    z-index: 2147483646;
+
+    @starting-style {
+      opacity: 0;
+      translate: 0 -6px;
+    }
+  }
+
+  /* Connection-lost strip at the top of the panel. Rendered when the SSE stream fails
+     to reconnect within the debounce window (see useLiveReload); reset the moment the
+     stream re-opens. Uses the "stale" (warm orange) token so it reads as attention
+     needed without competing with the success/accent hues used by the loop's own state
+     pills. Not a popover — it belongs inside the panel so the reviewer sees it while
+     glancing at their comments, not floating above the document. */
+  .miru-banner {
+    background: color-mix(in srgb, var(--miru-stale) 12%, var(--miru-bg));
+    color: var(--miru-stale);
+    border-bottom: 1px solid var(--miru-stale);
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    text-align: center;
+  }
+
+  /* Transient failed-save toast. Top-layer popover so it floats above panel + document
+     regardless of z-index. Bottom-centered so it does not cover the panel's Approve /
+     Submit review actions or the composer at the top of the reviewed doc. Auto-dismisses
+     after TOAST_MS in App; on failure the parent form keeps its text so the user can
+     retry immediately. */
+  .miru-toast {
+    position: fixed;
+    inset: auto;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    margin: 0;
+    border: 0;
+    overflow: visible;
+    background: var(--miru-fg);
+    color: var(--miru-bg);
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-family: -apple-system, system-ui, sans-serif;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    transition:
+      opacity var(--miru-dur) var(--miru-ease),
+      translate var(--miru-dur) var(--miru-ease);
+    opacity: 1;
+    translate: 0 0;
+
+    @starting-style {
+      opacity: 0;
+      translate: 0 8px;
     }
   }
 

@@ -21,7 +21,7 @@ import type { Anchor, HydratedComment, HydratedReviewFile } from "@miru/contract
 import { buildElementAnchor, buildTextAnchor, isStale, scrollToComment } from "./anchor.ts";
 import { api } from "./api.ts";
 import type { Draft } from "./DraftForm.tsx";
-import { DOC, docText } from "./dom.ts";
+import { DOC, docText, stashPreReloadText } from "./dom.ts";
 import { applyDraftHighlight } from "./highlight.ts";
 
 // Content-bearing block elements an Alt+click resolves to (nearest ancestor wins —
@@ -62,8 +62,17 @@ export function withViewTransition(cb: () => void): void {
 // InvalidStateError because the popover is already showing. Optional chain on the
 // method covers DOMs that don't implement it (older test envs) and very old browsers;
 // the element still renders, just without the top-layer guarantee.
+//
+// After showing, focus a nested textarea if the popover contains one. This is the
+// draft form's "start typing immediately" hook: React's `autoFocus` fires during commit
+// while the popover is still `display: none`, so its focus() is a no-op — focusing here,
+// after showPopover flips the popover open, lands the caret in the first textarea.
+// The panel and the "Approved" banner also mount through popoverRef but contain no
+// textarea at that moment, so the querySelector is a harmless miss.
 export function popoverRef(el: HTMLElement | null): void {
-  el?.showPopover?.();
+  if (!el) return;
+  el.showPopover?.();
+  el.querySelector<HTMLTextAreaElement>("textarea")?.focus();
 }
 
 // Subscribe to a document-level event with effect-managed cleanup. Used for the
@@ -361,6 +370,21 @@ export function useAltHoverPreview(): void {
   }, []);
 }
 
+// Snapshot the current rendered document text into sessionStorage right before triggering
+// a live reload. On the next page load the App reads it (once) and paints a transient
+// highlight over what changed — the "did the agent apply my suggestion verbatim?" check.
+// A no-op if the snapshot can't be written (private-browsing / storage quota).
+function reloadWithSnapshot(): void {
+  stashPreReloadText(docText(DOC()));
+  location.reload();
+}
+
+// Debounce window for the "connection lost" banner. EventSource fires `onerror` on both
+// terminal failures and transient blips (the browser's own auto-reconnect uses onerror →
+// silent retry → onopen); only flip disconnected after this window to avoid flashing the
+// banner during a normal reconnect.
+const CONN_LOST_MS = 3000;
+
 // Server -> client live updates: a file change forces a hard reload (CSS, anchors,
 // document text are all derived from the served HTML); a comments change just refetches.
 //
@@ -376,14 +400,19 @@ export function useAltHoverPreview(): void {
 // file change arrives is exactly when the user is reacting to it. When the draft
 // closes (submit / cancel), the deferred reload flushes. Trade-off: the just-submitted
 // comment may anchor against now-stale source; the staleness badge surfaces that.
-export function useLiveReload(onCommentsChange: () => void, reloadDeferred = false): void {
+export function useLiveReload(
+  onCommentsChange: () => void,
+  reloadDeferred = false,
+): { connected: boolean } {
   const composingRef = useRef(false);
   const pendingCommentsRef = useRef(false);
   const pendingReloadRef = useRef(false);
+  const [connected, setConnected] = useState(true);
+  const disconnectTimerRef = useRef<number | null>(null);
   const handle = useEffectEvent((data: string) => {
     if (data === "reload") {
       if (reloadDeferred) pendingReloadRef.current = true;
-      else location.reload();
+      else reloadWithSnapshot();
     } else if (data === "comments") {
       if (composingRef.current) pendingCommentsRef.current = true;
       else onCommentsChange();
@@ -401,7 +430,7 @@ export function useLiveReload(onCommentsChange: () => void, reloadDeferred = fal
   useEffect(() => {
     if (!reloadDeferred && pendingReloadRef.current) {
       pendingReloadRef.current = false;
-      location.reload();
+      reloadWithSnapshot();
     }
   }, [reloadDeferred]);
 
@@ -417,8 +446,26 @@ export function useLiveReload(onCommentsChange: () => void, reloadDeferred = fal
     document.addEventListener("compositionend", onEnd);
     const es = new EventSource("/api/events");
     es.onmessage = (e) => handle(e.data);
+    es.onopen = () => {
+      if (disconnectTimerRef.current !== null) {
+        window.clearTimeout(disconnectTimerRef.current);
+        disconnectTimerRef.current = null;
+      }
+      setConnected(true);
+    };
+    es.onerror = () => {
+      if (disconnectTimerRef.current !== null) return;
+      disconnectTimerRef.current = window.setTimeout(() => {
+        setConnected(false);
+        disconnectTimerRef.current = null;
+      }, CONN_LOST_MS);
+    };
     return () => {
       es.close();
+      if (disconnectTimerRef.current !== null) {
+        window.clearTimeout(disconnectTimerRef.current);
+        disconnectTimerRef.current = null;
+      }
       document.removeEventListener("compositionstart", onStart);
       document.removeEventListener("compositionend", onEnd);
     };
@@ -426,6 +473,8 @@ export function useLiveReload(onCommentsChange: () => void, reloadDeferred = fal
     // deps (React rule).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  return { connected };
 }
 
 // Panel-wide keyboard shortcuts. Suppressed while the user is typing in a textarea
