@@ -17,7 +17,7 @@ here — oxlint doesn't run those plugins by default — so apply them by hand.
 ## What to test
 
 - **Prefer extracting pure functions and testing those.** The anchor / offset helpers in `anchor.ts` / `dom.ts` are the highest-value targets: `offsetOf`, `rangeFromOffsets`, `buildTextAnchor` / `resolveText`, `buildElementAnchor` / `resolveElement`. Build a small DOM fixture (`fixtures.ts`) and assert each restore path: exact offset, prefix/suffix re-search, quote-only, and `stale` when nothing matches.
-- **Keep component tests light** (`components.tsx`): assert handler wiring (activate / reply / resolve / remove fire) and that `stale` / `resolved` / suggestion states render — don't deep-render the whole tree or test React internals. Stub `fetch` / `api()`; never reach the network.
+- **Keep component tests light** (`Card.test.tsx` / `DraftForm.test.tsx`): assert handler wiring (activate / reply / resolve / remove fire) and that `stale` / `resolved` / suggestion states render — don't deep-render the whole tree or test React internals. Stub `fetch` / `api()`; never reach the network.
 
 ## Queries
 
