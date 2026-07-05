@@ -1,6 +1,6 @@
 {
   "name": "@miru/server",
-  "version": "2026.7.1",
+  "private": true,
   "type": "module",
   "exports": {
     ".": {

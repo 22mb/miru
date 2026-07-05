@@ -90,6 +90,17 @@ jobs:
       - name: Build frontend
         run: bun run build:front
 
+      # Re-run the exact gates ci.yml enforces — a release must never outrun them.
+      # `bun build --compile` only strips types, it never checks them, so without this
+      # a type error or failing test would be baked into an immutable binary. build:front
+      # already ran above, which the test suite needs (server.ts text-imports the bundle).
+      - name: Typecheck, lint, format, and test
+        run: |
+          bun run typecheck
+          bun run lint
+          bun run fmt:check
+          bun run test
+
       # Cross-compile every target from this single Linux runner.
       - name: Build binaries
         run: |
@@ -104,6 +115,16 @@ jobs:
           build bun-darwin-x64   miru-macos-x64
           build bun-darwin-arm64 miru-macos-arm64
           build bun-windows-x64  miru-windows-x64.exe
+
+      # The runner is linux-x64, so this binary runs natively: catch a binary that
+      # compiles but dies on launch (asset-embedding regression, runtime init). Only
+      # linux-x64 can be exercised here; other targets are still smoke-untested.
+      - name: Smoke test (linux-x64)
+        run: |
+          ./dist/miru-linux-x64 comments README.md | grep -q "No unresolved comments"
+          # Once PR #10 (`miru --version`) merges, assert self-reported version == tag,
+          # closing the gap between the tag's source (root) and the binary's own claim:
+          # test "$(./dist/miru-linux-x64 --version)" = "$VERSION"
 
       - name: Generate SHA256 checksums
         working-directory: dist
@@ -120,7 +141,17 @@ jobs:
         with:
           subject-path: dist/miru-*
 
-      # `gh release create` creates the tag at the current commit if it does not
-      # exist yet, so the tag is only minted once the build succeeds.
+      # Create as a draft targeting the exact commit we built ($GITHUB_SHA), not main
+      # HEAD — otherwise a commit landing on main during the build window would make the
+      # tag point at a different commit than the binaries' provenance. A draft mints no
+      # tag and keeps assets mutable, so a mid-upload failure leaves only an orphan draft
+      # instead of a permanent partial public release. Flipping --draft=false is the
+      # single atomic moment the tag is cut, once every asset is uploaded.
       - name: Create GitHub Release
-        run: gh release create "$VERSION" dist/* --generate-notes
+        run: |
+          # Drop any orphan draft from a failed prior run so the re-run is self-healing.
+          # Only a draft can exist here: a published release would have made the check
+          # job short-circuit before this job ran, and it is immutable anyway.
+          gh release delete "$VERSION" --yes 2>/dev/null || true
+          gh release create "$VERSION" dist/* --draft --target "$GITHUB_SHA" --generate-notes
+          gh release edit "$VERSION" --draft=false
