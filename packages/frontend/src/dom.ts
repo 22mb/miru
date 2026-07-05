@@ -85,3 +85,64 @@ export function rangeFromOffsets(root: Node, start: number, end: number): Range 
 export function docText(root: Node): string {
   return buildTextIndex(root).text;
 }
+
+// sessionStorage keys used to hand the pre-reload doc text across a live reload — the JS
+// heap is destroyed by location.reload(), so we can only compute an after-reload "what
+// changed" if the before-text was persisted somewhere that survives the reload. Cleared
+// as soon as consumePreReloadText reads it (single-shot) so a plain user F5 doesn't
+// re-paint a stale change.
+const PRE_RELOAD_TEXT_KEY = "miru:pre-reload-text";
+const PRE_RELOAD_TS_KEY = "miru:pre-reload-ts";
+// Snapshots older than this are treated as stale and dropped — a browser refresh, a tab
+// closed & reopened, or a real reload with no accompanying doc change should not paint an
+// obsolete diff. 10s is long enough to cover a slow reload's disk read + parse.
+const PRE_RELOAD_FRESH_MS = 10_000;
+
+export function stashPreReloadText(text: string): void {
+  try {
+    sessionStorage.setItem(PRE_RELOAD_TEXT_KEY, text);
+    sessionStorage.setItem(PRE_RELOAD_TS_KEY, String(Date.now()));
+  } catch {
+    /* private-browsing / quota — the flash is nice-to-have, not load-bearing */
+  }
+}
+
+// Read + clear the pre-reload snapshot. Returns null if none is present or the snapshot
+// is older than the freshness window.
+export function consumePreReloadText(): string | null {
+  try {
+    const text = sessionStorage.getItem(PRE_RELOAD_TEXT_KEY);
+    const ts = Number(sessionStorage.getItem(PRE_RELOAD_TS_KEY));
+    sessionStorage.removeItem(PRE_RELOAD_TEXT_KEY);
+    sessionStorage.removeItem(PRE_RELOAD_TS_KEY);
+    if (text === null || !Number.isFinite(ts)) return null;
+    if (Date.now() - ts > PRE_RELOAD_FRESH_MS) return null;
+    return text;
+  } catch {
+    return null;
+  }
+}
+
+// Character range in `next` that differs from `prev`, via longest common prefix + longest
+// common suffix. Returns null when the strings are identical or when the change is a pure
+// deletion (nothing to paint in `next`). Deliberately coarse: two scattered edits collapse
+// into a single spanning range — good enough for "look here after the reload" without a
+// real diff algorithm's cost. Callers can cap by size (see MAX_CHANGED_FRACTION in App).
+export function diffRange(prev: string, next: string): { start: number; end: number } | null {
+  if (prev === next) return null;
+  const maxPrefix = Math.min(prev.length, next.length);
+  let start = 0;
+  while (start < maxPrefix && prev.charCodeAt(start) === next.charCodeAt(start)) start++;
+  let endPrev = prev.length;
+  let endNext = next.length;
+  while (
+    endPrev > start &&
+    endNext > start &&
+    prev.charCodeAt(endPrev - 1) === next.charCodeAt(endNext - 1)
+  ) {
+    endPrev--;
+    endNext--;
+  }
+  if (start === endNext) return null;
+  return { start, end: endNext };
+}

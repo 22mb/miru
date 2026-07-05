@@ -35,7 +35,9 @@ export interface Draft {
 export function DraftForm(props: {
   draft: Draft;
   onCancel: () => void;
-  onSubmit: (body: string, suggestion: string, draft: boolean) => void;
+  // Awaited so a rejection keeps the form open with its text (server unreachable is
+  // surfaced by the parent's toast — the reviewer's draft should not evaporate on retry).
+  onSubmit: (body: string, suggestion: string, draft: boolean) => Promise<void> | void;
 }) {
   const [body, setBody] = useState("");
   const [sug, setSug] = useState("");
@@ -51,7 +53,11 @@ export function DraftForm(props: {
   // the parent's async submit finish before a second click can fire.
   const [, submitAction, pending] = useActionState<null, FormData>(async (_prev, fd) => {
     if (!hasContent) return null;
-    props.onSubmit(body, sug, fd.get("intent") === "draft");
+    try {
+      await props.onSubmit(body, sug, fd.get("intent") === "draft");
+    } catch {
+      /* parent toasts; body/suggestion text stays so the reviewer can retry */
+    }
     return null;
   }, null);
 
@@ -79,7 +85,6 @@ export function DraftForm(props: {
         Comment on {props.draft.anchor.type === "text" ? "text" : "element"}
       </div>
       <textarea
-        autoFocus
         className="miru-draft__body"
         value={body}
         placeholder="Comment (markdown)"

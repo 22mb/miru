@@ -1,6 +1,13 @@
 // Single comment card with reply / resolve / delete actions. Pure presentation —
 // App owns the comment state and passes handlers down.
-import { type KeyboardEvent, type ReactNode, useActionState, useRef, useState } from "react";
+import {
+  type KeyboardEvent,
+  type ReactNode,
+  useActionState,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import type { Author, HydratedComment } from "@miru/contract";
 
 const AUTHOR_LABEL: Record<Author, string> = { human: "You", agent: "Agent" };
@@ -44,27 +51,45 @@ export function Card(props: {
   onHover: (id: string | null) => void;
   onRemove: () => void;
   onToggle: () => void;
-  onReply: (body: string) => void;
+  // Returned promise is awaited so a failed save (server unreachable) keeps the reply form
+  // open with its text intact; parent surfaces the failure via a toast.
+  onReply: (body: string) => Promise<void> | void;
 }) {
   const c = props.comment;
   const [replyOpen, setReplyOpen] = useState(false);
   const [replyText, setReplyText] = useState("");
   const trimmed = replyText.trim();
   const submitRef = useRef<HTMLButtonElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // Follow j/k navigation with the panel too: when this card becomes the active one,
+  // scroll it into the panel's viewport if it isn't already. `block: "nearest"` avoids
+  // yanking the panel when the card is already visible — no motion when there's nothing
+  // to do. focusComment only scrolls the DOCUMENT to the anchor; without this the panel
+  // list stayed pinned at the top while the doc marched forward.
+  useEffect(() => {
+    if (props.active) rootRef.current?.scrollIntoView({ block: "nearest" });
+  }, [props.active]);
 
   // Reply form action: trim, hand off to App, then close. useActionState gives us a
   // pending flag while the parent's async reply is in flight, so we can disable the
-  // submit and avoid a double-post.
+  // submit and avoid a double-post. On failure the parent surfaces a toast; keep the form
+  // open with its text so the reviewer's words aren't lost to a network blip.
   const [, replyAction, replying] = useActionState<null, FormData>(async () => {
     if (!trimmed) return null;
-    props.onReply(trimmed);
-    setReplyText("");
-    setReplyOpen(false);
+    try {
+      await props.onReply(trimmed);
+      setReplyText("");
+      setReplyOpen(false);
+    } catch {
+      /* parent toasts; text stays for retry */
+    }
     return null;
   }, null);
 
   return (
     <div
+      ref={rootRef}
       className="miru-card"
       // Per-card view-transition-name lets the browser morph each card across reorders
       // (e.g. when one is resolved). The id is opaque (shortId), safe as an ident.
@@ -98,6 +123,12 @@ export function Card(props: {
           >
             <span className="miru-status__dot" aria-hidden="true" />
             {c.pickedUpAt ? "agent reviewing" : "waiting"}
+          </span>
+        )}
+        {c.status === "answered" && !c.resolved && (
+          <span className="miru-status miru-status--replied" title="The agent replied — your turn">
+            <span className="miru-status__dot" aria-hidden="true" />
+            replied
           </span>
         )}
         {props.stale && <span className="miru-stale">stale</span>}

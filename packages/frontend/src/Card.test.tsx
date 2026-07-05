@@ -1,5 +1,5 @@
 import "./register-dom.ts";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, render, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { HydratedComment } from "@miru/contract";
@@ -115,12 +115,56 @@ describe("Card", () => {
     expect(container.querySelector(".miru-card")!.hasAttribute("data-draft")).toBe(true);
   });
 
+  test("an answered, unresolved comment shows the 'replied' pill", () => {
+    const { getByText } = renderCard({ status: "answered", resolved: false });
+    expect(getByText("replied")).toBeDefined();
+  });
+
+  test("an answered, resolved comment does not show the 'replied' pill", () => {
+    const { queryByText } = renderCard({ status: "answered", resolved: true });
+    expect(queryByText("replied")).toBeNull();
+  });
+
   test("replies render a per-author label so human vs agent reads at a glance", () => {
     const { getByText } = renderCard({
       replies: [makeReply({ id: "r1", author: "human" }), makeReply({ id: "r2", author: "agent" })],
     });
     expect(getByText("You")).toBeDefined();
     expect(getByText("Agent")).toBeDefined();
+  });
+
+  test("becoming active scrolls the card into the panel viewport", () => {
+    const scrollIntoView = mock(() => {});
+    HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    const { rerender } = render(
+      <Card
+        comment={makeComment({})}
+        active={false}
+        stale={false}
+        fresh={false}
+        onActivate={noop}
+        onHover={noop}
+        onRemove={noop}
+        onToggle={noop}
+        onReply={noop}
+      />,
+    );
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    rerender(
+      <Card
+        comment={makeComment({})}
+        active={true}
+        stale={false}
+        fresh={false}
+        onActivate={noop}
+        onHover={noop}
+        onRemove={noop}
+        onToggle={noop}
+        onReply={noop}
+      />,
+    );
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(scrollIntoView).toHaveBeenLastCalledWith({ block: "nearest" });
   });
 
   test("Cmd/Ctrl+Enter in the reply textarea submits the reply", async () => {
