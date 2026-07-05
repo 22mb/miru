@@ -1,7 +1,7 @@
 // Shared fixtures for frontend *.test.tsx.
 // The panel consumes hydrated wire shapes (bodyHtml required), not the persisted
 // domain types — fixtures reflect that so tests exercise the same shape components see.
-import type { HydratedComment, HydratedReply } from "@miru/contract";
+import type { HydratedComment, HydratedReply, HydratedReviewFile } from "@miru/contract";
 
 export function makeComment(over: Partial<HydratedComment> = {}): HydratedComment {
   return {
@@ -29,4 +29,8 @@ export function makeReply(over: Partial<HydratedReply> = {}): HydratedReply {
     draft: false,
     ...over,
   };
+}
+
+export function makeReview(comments: HydratedComment[] = []): HydratedReviewFile {
+  return { version: 1, target: "doc.md", approved: false, comments };
 }

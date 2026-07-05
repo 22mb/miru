@@ -35,8 +35,9 @@ export interface Draft {
 export function DraftForm(props: {
   draft: Draft;
   onCancel: () => void;
-  // Awaited so a rejection keeps the form open with its text (server unreachable is
-  // surfaced by the parent's toast — the reviewer's draft should not evaporate on retry).
+  // Awaited only for the pending flag; must not throw. On failure the parent keeps the
+  // draft open (this form stays mounted with its text) and surfaces a toast — the
+  // reviewer's words should not evaporate on a network blip.
   onSubmit: (body: string, suggestion: string, draft: boolean) => Promise<void> | void;
 }) {
   const [body, setBody] = useState("");
@@ -53,11 +54,7 @@ export function DraftForm(props: {
   // the parent's async submit finish before a second click can fire.
   const [, submitAction, pending] = useActionState<null, FormData>(async (_prev, fd) => {
     if (!hasContent) return null;
-    try {
-      await props.onSubmit(body, sug, fd.get("intent") === "draft");
-    } catch {
-      /* parent toasts; body/suggestion text stays so the reviewer can retry */
-    }
+    await props.onSubmit(body, sug, fd.get("intent") === "draft");
     return null;
   }, null);
 

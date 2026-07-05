@@ -6,7 +6,7 @@ import type { HydratedReviewFile } from "@miru/contract";
 import { api } from "./api.ts";
 import { Card } from "./Card.tsx";
 import { DraftForm } from "./DraftForm.tsx";
-import { consumePreReloadText, diffRange, DOC, docText } from "./dom.ts";
+import { DOC, docText } from "./dom.ts";
 import { applyChangedHighlight, applyHighlights, applyPreviewHighlight } from "./highlight.ts";
 import {
   popoverRef,
@@ -27,11 +27,18 @@ const MAX_CHANGED_FRACTION = 0.2;
 // How long the changed highlight stays painted before clearing itself. Long enough to
 // register visually, short enough that it doesn't linger past the moment of relevance.
 const CHANGED_FLASH_MS = 3000;
+// How long a failure toast stays up before clearing itself.
+const TOAST_MS = 4000;
 
 export function App({
   initialCommentsPromise,
+  changedRange,
 }: {
   initialCommentsPromise: Promise<HydratedReviewFile>;
+  // Post-live-reload diff, computed once per page load in index.tsx (the snapshot
+  // consumption is single-shot, so it can't live in an effect). Null when this load
+  // wasn't a live reload or nothing changed.
+  changedRange: { start: number; end: number } | null;
 }) {
   const c = useComments(initialCommentsPromise);
   const [showResolved, setShowResolved] = useState(false);
@@ -44,47 +51,50 @@ export function App({
   }, [c.comments, c.activeId]);
 
   // Surface "your turn" from another window: prefix the tab title with (N) where N is the
-  // count of comments the agent has answered but the human hasn't resolved yet. The panel
-  // never unmounts in real use, so the restore-on-cleanup is only for tests / hot reload.
+  // count of comments the agent has answered but the human hasn't resolved yet. The
+  // cleanup restores the unprefixed title so remounts (tests / hot reload) can't stack
+  // `(N)` prefixes.
   useEffect(() => {
     const needsYou = c.comments.filter((x) => x.status === "answered" && !x.resolved).length;
     const original = document.title.replace(/^\(\d+\)\s+/, "");
     document.title = needsYou > 0 ? `(${needsYou}) ${original}` : original;
+    return () => {
+      document.title = original;
+    };
   }, [c.comments]);
 
-  // Post-live-reload flash: if a pre-reload snapshot was stashed in sessionStorage (see
-  // reloadWithSnapshot in hooks.ts), diff it against the freshly-rendered document text
-  // and paint the changed range for CHANGED_FLASH_MS. Runs once per mount — a plain
-  // browser refresh with no prior stash is a no-op. The chip is the fixed part; the
-  // highlight is dropped when the diff is too coarse to be useful (see MAX_CHANGED_FRACTION).
-  const [changedChip, setChangedChip] = useState(false);
+  // Post-live-reload flash: paint the changed range for CHANGED_FLASH_MS and show the
+  // chip. Consuming the snapshot and diffing happen once per page load in index.tsx;
+  // what remains here is an idempotent paint + timer with full cleanup, so a remount
+  // (StrictMode, tests) repaints instead of losing the flash. The highlight is dropped
+  // when the diff is too coarse to be useful (see MAX_CHANGED_FRACTION); the chip still
+  // fires so the reviewer knows the reload landed.
+  const [changedChip, setChangedChip] = useState(changedRange !== null);
   useEffect(() => {
-    const prev = consumePreReloadText();
-    if (prev === null) return;
-    const next = docText(DOC());
-    const range = diffRange(prev, next);
-    if (!range) return;
-    setChangedChip(true);
-    const span = range.end - range.start;
-    if (next.length > 0 && span / next.length <= MAX_CHANGED_FRACTION) {
-      applyChangedHighlight(range);
-    }
+    if (!changedRange) return;
+    const span = changedRange.end - changedRange.start;
+    const len = docText(DOC()).length;
+    if (len > 0 && span / len <= MAX_CHANGED_FRACTION) applyChangedHighlight(changedRange);
     const t = window.setTimeout(() => {
       applyChangedHighlight(null);
       setChangedChip(false);
     }, CHANGED_FLASH_MS);
-    return () => window.clearTimeout(t);
-  }, []);
+    return () => {
+      window.clearTimeout(t);
+      applyChangedHighlight(null);
+    };
+  }, [changedRange]);
 
-  // Card hover → highlight that comment's anchor in the doc. Lifted to App so we don't
-  // hand individual cards a reference to the highlight layer; they just call onHover with
-  // their id (or null on leave). The applied highlight clears automatically when the
-  // hovered card unmounts, since the leave event fires before unmount.
-  const [previewId, setPreviewId] = useState<string | null>(null);
-  useEffect(() => {
-    const target = previewId ? c.comments.find((x) => x.id === previewId) : null;
+  // Card hover → highlight that comment's anchor in the doc, painted straight from the
+  // event handler — same reasoning as the draft highlight in useDraftCapture: every
+  // transition is user-driven, so a state + effect round-trip would be derived
+  // bookkeeping (and a full App re-render per hover). Lifted to App so cards don't hold
+  // a reference to the highlight layer. One gap an effect would have covered: deleting
+  // the hovered card fires no mouseleave — the onRemove wrapper below clears explicitly.
+  const onCardHover = (id: string | null) => {
+    const target = id ? c.comments.find((x) => x.id === id) : null;
     applyPreviewHighlight(target?.anchor ?? null);
-  }, [previewId, c.comments]);
+  };
 
   // Defer file-change reloads while a draft is open — the reload wipes the textarea
   // contents and the file change is usually what the user is reacting to.
@@ -92,8 +102,7 @@ export function App({
 
   // Transient toast for API save failures (the API call throws; we surface it here).
   // Only one at a time — a second failure replaces the message rather than stacking; the
-  // review loop doesn't have parallel writes worth queuing. Cleared on user dismiss or
-  // after TOAST_MS.
+  // review loop doesn't have parallel writes worth queuing. Auto-clears after TOAST_MS.
   const [toast, setToast] = useState<string | null>(null);
   const toastTimerRef = useRef<number | null>(null);
   const notify = useCallback((msg: string) => {
@@ -102,31 +111,39 @@ export function App({
     toastTimerRef.current = window.setTimeout(() => {
       setToast(null);
       toastTimerRef.current = null;
-    }, 4000);
+    }, TOAST_MS);
   }, []);
   useEffect(() => {
     return () => {
       if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
     };
   }, []);
-  // Wrap an async mutator so a rejection surfaces as a toast and still bubbles up. Callers
-  // that need to keep their form open on failure re-throw so their local action sees it;
-  // fire-and-forget callers (delete / resolve) just get the toast.
+  // Wrap an async mutator so a rejection surfaces as a toast; resolves true on success,
+  // false on failure. A boolean instead of a re-throw so no caller can forget to catch —
+  // fire-and-forget callers (delete / resolve) just drop the flag, callers that keep
+  // their form open on failure (reply / draft submit) branch on it.
   const guard = useCallback(
     <A extends unknown[]>(fn: (...args: A) => Promise<unknown>, msg: string) =>
-      async (...args: A) => {
+      async (...args: A): Promise<boolean> => {
         try {
           await fn(...args);
+          return true;
         } catch {
           notify(msg);
-          throw new Error("save-failed");
+          return false;
         }
       },
     [notify],
   );
 
+  // Resolved comments are hidden by default — the toggle in the header restores them.
+  // Derived before the keyboard hook so j/k navigate exactly what's rendered; feeding
+  // the full list would let navigation land on a hidden resolved card (a silent scroll
+  // with no visible focus).
+  const visible = showResolved ? c.comments : c.comments.filter((x) => !x.resolved);
+
   useKeyboardShortcuts({
-    comments: c.comments,
+    comments: visible,
     activeId: c.activeId,
     focusComment: c.focusComment,
     onCancelDraft: clearDraft,
@@ -138,10 +155,12 @@ export function App({
 
   const onSubmitDraft = async (body: string, suggestion: string, asDraft: boolean) => {
     if (!draft) return;
-    await guard(
+    const saved = await guard(
       () => c.submit(draft.anchor, body, suggestion, asDraft),
       "Couldn't save — server unreachable",
     )();
+    // On failure keep the draft (and its text) open for a retry — only the toast fires.
+    if (!saved) return;
     clearDraft();
     window.getSelection()?.removeAllRanges();
   };
@@ -221,9 +240,6 @@ export function App({
   const open = c.comments.filter((x) => !x.resolved).length;
   const resolved = c.comments.length - open;
   const drafts = c.comments.filter((x) => x.status === "draft").length;
-  // Resolved comments are hidden by default — the toggle in the header restores them.
-  // Wrap the state flip in View Transitions so the resolved cards morph in/out.
-  const visible = showResolved ? c.comments : c.comments.filter((x) => !x.resolved);
 
   return (
     <>
@@ -266,10 +282,13 @@ export function App({
             <span>Connection lost — the review session may have ended.</span>
           </div>
         )}
+        {/* Focusable so the separator role keeps its promise: arrow keys resize (see
+            usePanelResize), which also maintains aria-valuenow/min/max imperatively. */}
         <div
           ref={resizerRef}
           className="miru-panel__resizer"
           role="separator"
+          tabIndex={0}
           aria-orientation="vertical"
           aria-label="Resize panel"
         />
@@ -368,18 +387,15 @@ export function App({
                   stale={c.staleIds.has(cm.id)}
                   fresh={c.freshReplyIds.has(cm.id)}
                   onActivate={() => c.focusComment(cm.id)}
-                  onHover={setPreviewId}
-                  onRemove={() =>
-                    void guard(
-                      c.remove,
-                      "Couldn't delete — server unreachable",
-                    )(cm.id).catch(() => {})
-                  }
+                  onHover={onCardHover}
+                  onRemove={() => {
+                    // The card vanishes under the pointer — mouseleave never fires,
+                    // so clear the hover preview explicitly.
+                    applyPreviewHighlight(null);
+                    void guard(c.remove, "Couldn't delete — server unreachable")(cm.id);
+                  }}
                   onToggle={() =>
-                    void guard(
-                      c.toggleResolved,
-                      "Couldn't update — server unreachable",
-                    )(cm).catch(() => {})
+                    void guard(c.toggleResolved, "Couldn't update — server unreachable")(cm)
                   }
                   onReply={(body) =>
                     guard(c.reply, "Couldn't save — server unreachable")(cm.id, body)
