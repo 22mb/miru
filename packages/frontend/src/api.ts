@@ -19,11 +19,12 @@ function token(): string {
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(path, {
+  const init: RequestInit = {
     method,
     headers: { "content-type": "application/json", "x-miru-token": token() },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  };
+  if (body !== undefined) init.body = JSON.stringify(body);
+  const res = await fetch(path, init);
   if (!res.ok) throw new Error(`${method} ${path} -> ${res.status}`);
   return (await res.json()) as T;
 }

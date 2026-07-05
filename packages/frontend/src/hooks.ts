@@ -17,7 +17,7 @@ import {
   useState,
 } from "react";
 import { flushSync } from "react-dom";
-import type { Anchor, HydratedComment, HydratedReviewFile } from "@miru/contract";
+import type { Anchor, HydratedComment, HydratedReviewFile, SseEvent } from "@miru/contract";
 import { buildElementAnchor, buildTextAnchor, isStale, scrollToComment } from "./anchor.ts";
 import { api } from "./api.ts";
 import type { Draft } from "./DraftForm.tsx";
@@ -45,13 +45,14 @@ const DRAFT_WIDTH = 440;
 // breaks IME composition (a window blur/refocus during a transition can leave the
 // caret in limbo — IME input stops working until the user manually refocuses). The
 // animation is a nicety; correct text input is not.
-type DocumentWithVT = Document & { startViewTransition?: (cb: () => void) => unknown };
 function isEditing(): boolean {
   const a = document.activeElement;
   return !!a && (a.tagName === "TEXTAREA" || a.tagName === "INPUT");
 }
 export function withViewTransition(cb: () => void): void {
-  const start = (document as DocumentWithVT).startViewTransition;
+  // lib.dom types startViewTransition as always-present; guard for engines that
+  // haven't shipped it (Firefox as of writing) and for happy-dom in tests.
+  const start = document.startViewTransition;
   if (typeof start === "function" && !isEditing()) start.call(document, () => flushSync(cb));
   else cb();
 }
@@ -322,8 +323,8 @@ export function useDraftCapture(): {
 
   const onClick = useEffectEvent((e: MouseEvent) => {
     if (inPanel(e.target) || !e.altKey) return;
-    const t = e.target as Element;
-    if (!DOC().contains(t)) return;
+    const t = e.target;
+    if (!(t instanceof Element) || !DOC().contains(t)) return;
     e.preventDefault();
     const el = t.closest(ALT_CLICK_TARGETS) ?? t;
     openDraft(buildElementAnchor(el), el.getBoundingClientRect());
@@ -346,8 +347,8 @@ export function useAltHoverPreview(): void {
     };
     const onMouseMove = (e: MouseEvent) => {
       if (!e.altKey || inPanel(e.target)) return clear();
-      const t = e.target as Element;
-      if (!DOC().contains(t)) return clear();
+      const t = e.target;
+      if (!(t instanceof Element) || !DOC().contains(t)) return clear();
       const next = t.closest(ALT_CLICK_TARGETS) ?? t;
       if (next === target) return;
       clear();
@@ -410,10 +411,12 @@ export function useLiveReload(
   const [connected, setConnected] = useState(true);
   const disconnectTimerRef = useRef<number | null>(null);
   const handle = useEffectEvent((data: string) => {
-    if (data === "reload") {
+    // `satisfies SseEvent` ties each literal to the contract type, so renaming an
+    // event on the server side becomes a compile error here instead of a silent miss.
+    if (data === ("reload" satisfies SseEvent)) {
       if (reloadDeferred) pendingReloadRef.current = true;
       else reloadWithSnapshot();
-    } else if (data === "comments") {
+    } else if (data === ("comments" satisfies SseEvent)) {
       if (composingRef.current) pendingCommentsRef.current = true;
       else onCommentsChange();
     }
@@ -487,8 +490,8 @@ export function useKeyboardShortcuts(opts: {
   onResolveActive: () => void;
 }): void {
   const handle = useEffectEvent((e: KeyboardEvent) => {
-    const t = e.target as HTMLElement | null;
-    if (t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT")) return;
+    const t = e.target;
+    if (t instanceof Element && (t.tagName === "TEXTAREA" || t.tagName === "INPUT")) return;
     if (e.key === "Escape") {
       opts.onCancelDraft();
       return;
@@ -566,5 +569,5 @@ export function usePanelResize(): RefObject<HTMLDivElement | null> {
 // True when the event target is inside the miru panel (so the document-level
 // listeners can ignore their own UI).
 export function inPanel(t: EventTarget | null): boolean {
-  return !!(t as Element | null)?.closest?.("#miru-root");
+  return t instanceof Element && t.closest("#miru-root") !== null;
 }

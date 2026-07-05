@@ -10,6 +10,16 @@
     "noEmit": true,
     "strict": true,
     "skipLibCheck": true,
-    "noUncheckedIndexedAccess": true
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false,
+    "noUncheckedSideEffectImports": true,
+    "isolatedModules": true,
+    "erasableSyntaxOnly": true
   }
 }

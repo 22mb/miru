@@ -17,16 +17,12 @@ export function applyChangedHighlight(range: { start: number; end: number } | nu
     const r = rangeFromIndex(idx, range.start, range.end);
     if (r) ranges.push(r);
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const HL = (globalThis as any).Highlight;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const css = CSS as any;
-  if (HL && css.highlights) {
-    css.highlights.set("miru-changed", new HL(...ranges));
+  // typeof-guard: happy-dom and older browsers don't ship the Custom Highlight API.
+  if (typeof Highlight !== "undefined" && CSS.highlights) {
+    CSS.highlights.set("miru-changed", new Highlight(...ranges));
   }
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 export function applyHighlights(comments: Comment[], activeId: string | null): void {
   const root = DOC();
   root
@@ -49,10 +45,8 @@ export function applyHighlights(comments: Comment[], activeId: string | null): v
       }
     }
   }
-  const HL = (globalThis as any).Highlight;
-  const css = CSS as any;
-  if (HL && css.highlights) {
-    css.highlights.set("miru", new HL(...ranges));
+  if (typeof Highlight !== "undefined" && CSS.highlights) {
+    CSS.highlights.set("miru", new Highlight(...ranges));
   }
 }
 
@@ -75,10 +69,8 @@ export function applyDraftHighlight(anchor: Anchor | null): void {
       if (el) el.classList.add("miru-el-draft");
     }
   }
-  const HL = (globalThis as any).Highlight;
-  const css = CSS as any;
-  if (HL && css.highlights) {
-    css.highlights.set("miru-draft", new HL(...ranges));
+  if (typeof Highlight !== "undefined" && CSS.highlights) {
+    CSS.highlights.set("miru-draft", new Highlight(...ranges));
   }
 }
 
@@ -104,10 +96,7 @@ export function applyPreviewHighlight(anchor: Anchor | null): void {
       if (el) el.classList.add("miru-el-card-preview");
     }
   }
-  const HL = (globalThis as any).Highlight;
-  const css = CSS as any;
-  if (HL && css.highlights) {
-    css.highlights.set("miru-preview", new HL(...ranges));
+  if (typeof Highlight !== "undefined" && CSS.highlights) {
+    CSS.highlights.set("miru-preview", new Highlight(...ranges));
   }
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */

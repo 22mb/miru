@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 import { appendFileSync, readFileSync } from "node:fs";
 
-const token = process.env.GITHUB_TOKEN;
-const repo = process.env.GITHUB_REPOSITORY;
-const output = process.env.GITHUB_OUTPUT;
+const token = process.env["GITHUB_TOKEN"];
+const repo = process.env["GITHUB_REPOSITORY"];
+const output = process.env["GITHUB_OUTPUT"];
 if (!token || !repo) {
   throw new Error("GITHUB_TOKEN and GITHUB_REPOSITORY are required");
 }

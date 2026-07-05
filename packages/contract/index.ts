@@ -157,6 +157,10 @@ export function agentView(
   };
 }
 
+// SSE wire events pushed by the server (`/api/events`); the browser switches on these
+// literals. Type-only so the frontend's "types only from contract" rule holds.
+export type SseEvent = "reload" | "comments";
+
 // ---------- wire hydrations (server → browser) ----------
 // The browser panel injects a sanitized HTML render of `body` via
 // dangerouslySetInnerHTML. That HTML is a pure derivation of `body` — cheap to
