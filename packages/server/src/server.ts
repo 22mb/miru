@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
+import type { Server } from "bun";
 import { renderCommentBody } from "./render.ts";
 import {
   CorruptedSidecarError,
@@ -20,6 +21,7 @@ import {
   type HydratedComment,
   type HydratedReply,
   type HydratedReviewFile,
+  type SseEvent,
 } from "@miru/contract";
 import { shortId } from "./id.ts";
 
@@ -47,6 +49,22 @@ export interface ServeOptions {
   // any dependency on the frontend build graph so `bun test packages/server` runs
   // without needing the frontend to be built first.
   assets: { js: string; css: string };
+}
+
+// The running review server handed back to the CLI: the Bun server plus the hooks the
+// file-watcher and the approve-flow drive.
+export interface ReviewServer {
+  // Server's type parameter is the per-connection WebSocket data; no WebSockets here.
+  server: Server<undefined>;
+  /** Resolves when "Approve" is pressed (= the end of this review round). */
+  finished: Promise<void>;
+  /** Replace the served document HTML (used on file change). */
+  setHtml(html: string): void;
+  /** Tell connected browsers to reload (used on file change). */
+  notifyReload(): void;
+  /** Tell connected browsers to refetch comments (used when the sidecar JSON is
+   *  modified out-of-band — e.g. `miru comment` writes directly to disk). */
+  notifyComments(): void;
 }
 
 const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
@@ -106,7 +124,7 @@ function tokensEqual(a: string, b: string): boolean {
   return timingSafeEqual(enc.encode(a), enc.encode(b));
 }
 
-export function createServer(opts: ServeOptions) {
+export function createServer(opts: ServeOptions): ReviewServer {
   let currentHtml = opts.initialHtml;
   const { promise: finished, resolve: resolveFinish } = Promise.withResolvers<void>();
 
@@ -116,7 +134,7 @@ export function createServer(opts: ServeOptions) {
   const encoder = new TextEncoder();
   const sseClients = new Set<ReadableStreamDefaultController<Uint8Array>>();
 
-  function broadcast(event: string): void {
+  function broadcast(event: SseEvent): void {
     const chunk = encoder.encode(`data: ${event}\n\n`);
     for (const client of sseClients) {
       try {
@@ -224,9 +242,9 @@ export function createServer(opts: ServeOptions) {
       return Response.json({ error: "invalid body", issues: parsed.error.issues }, { status: 400 });
     const patch = parsed.data;
     const patched = await updateReview(opts.target, (loaded) => {
-      const idx = loaded.comments.findIndex((c) => c.id === id);
-      if (idx === -1) return { review: loaded, result: null };
-      let comment = loaded.comments[idx]!;
+      const existing = loaded.comments.find((c) => c.id === id);
+      if (!existing) return { review: loaded, result: null };
+      let comment = existing;
       if (typeof patch.body === "string") comment = { ...comment, body: patch.body };
       if (typeof patch.resolved === "boolean") comment = { ...comment, resolved: patch.resolved };
       if (patch.suggestion !== undefined) comment = { ...comment, suggestion: patch.suggestion };
@@ -247,7 +265,7 @@ export function createServer(opts: ServeOptions) {
       }
       const withPatch: typeof loaded = {
         ...loaded,
-        comments: loaded.comments.map((c, i) => (i === idx ? comment : c)),
+        comments: loaded.comments.map((c) => (c.id === id ? comment : c)),
       };
       const review = approvalDismissed ? dismissApproval(withPatch) : withPatch;
       return { review, result: comment };
@@ -379,16 +397,12 @@ export function createServer(opts: ServeOptions) {
   return {
     server,
     finished,
-    /** Replace the served document HTML (used on file change). */
     setHtml(html: string) {
       currentHtml = html;
     },
-    /** Tell connected browsers to reload (used on file change). */
     notifyReload() {
       broadcast("reload");
     },
-    /** Tell connected browsers to refetch comments (used when the sidecar JSON is
-     *  modified out-of-band — e.g. `miru comment` writes directly to disk). */
     notifyComments() {
       broadcast("comments");
     },

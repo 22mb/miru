@@ -194,7 +194,7 @@ export function App({
   useEffect(() => {
     if (!armed) return;
     const onDown = (e: MouseEvent) => {
-      if (!(e.target as Element | null)?.closest?.(".miru-approve")) disarmApprove();
+      if (!(e.target instanceof Element && e.target.closest(".miru-approve"))) disarmApprove();
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") disarmApprove();

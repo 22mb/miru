@@ -8,7 +8,7 @@ export function detectKind(filePath: string): SourceKind {
 
 // Force rel="noopener noreferrer" on target="_blank" links (tab-nabbing guard).
 const transformAnchor: sanitizeHtml.Transformer = (tagName, attribs) => {
-  if (attribs.target === "_blank") attribs.rel = "noopener noreferrer";
+  if (attribs["target"] === "_blank") attribs["rel"] = "noopener noreferrer";
   return { tagName, attribs };
 };
 

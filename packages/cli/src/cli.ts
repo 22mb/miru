@@ -170,9 +170,9 @@ if (command === "comment") {
     process.exit(1);
   }
   const updatedId = await updateReview(file, (loaded) => {
-    const idx = loaded.comments.findIndex((c) => c.id === targetId);
-    if (idx === -1) return { review: loaded, result: null };
-    let comment = loaded.comments[idx]!;
+    const existing = loaded.comments.find((c) => c.id === targetId);
+    if (!existing) return { review: loaded, result: null };
+    let comment = existing;
     if (replyBody !== undefined) {
       // `miru comment --reply-to` is how the agent loop posts back; the browser never
       // goes through this path, so the author is always the agent here and the reply
@@ -187,7 +187,7 @@ if (command === "comment") {
     return {
       review: {
         ...loaded,
-        comments: loaded.comments.map((c, i) => (i === idx ? comment : c)),
+        comments: loaded.comments.map((c) => (c.id === targetId ? comment : c)),
       },
       result: comment.id,
     };

@@ -7,12 +7,13 @@ export type { Anchor, Comment, ElementAnchor, Reply, ReviewFile, TextAnchor } fr
 // mismatch). Callers turn this into a 422 (server) or a clean stderr message (CLI) so
 // the user knows to fix the file by hand instead of seeing a 500 with a stack trace.
 export class CorruptedSidecarError extends Error {
-  constructor(
-    readonly path: string,
-    readonly detail: string,
-  ) {
+  readonly path: string;
+  readonly detail: string;
+  constructor(path: string, detail: string) {
     super(`corrupted sidecar at ${path}: ${detail}`);
     this.name = "CorruptedSidecarError";
+    this.path = path;
+    this.detail = detail;
   }
 }
 
@@ -20,14 +21,15 @@ export class CorruptedSidecarError extends Error {
 // Distinct from CorruptedSidecarError: the file is fine, the reader is out of date.
 // Callers surface it as an upgrade prompt (CLI stderr / server 409).
 export class FutureSidecarError extends Error {
-  constructor(
-    readonly path: string,
-    readonly fileVersion: number,
-  ) {
+  readonly path: string;
+  readonly fileVersion: number;
+  constructor(path: string, fileVersion: number) {
     super(
       `sidecar at ${path} was written by a newer miru (version ${fileVersion} > ${CURRENT_VERSION}); please upgrade miru`,
     );
     this.name = "FutureSidecarError";
+    this.path = path;
+    this.fileVersion = fileVersion;
   }
 }
 
