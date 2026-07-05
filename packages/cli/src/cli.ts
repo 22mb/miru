@@ -21,12 +21,11 @@ import {
 } from "@miru/server";
 import { awaitingAgent, openForAgent, type Comment, type Reply } from "@miru/contract";
 import skillMd from "./skill/SKILL.md" with { type: "text" };
-// The CLI's own manifest — pulled in so `--version` prints the build-time CalVer
-// the bump script wrote. The parent-directory hop is the only way to reach it
-// without duplicating the field into src/, since package.json must stay at the
-// workspace root for `bun build --compile` to resolve.
+// The version is single-sourced in the repo-root package.json — workspace manifests
+// carry no `version` — so `--version` reads it from there. `bun build --compile`
+// inlines this JSON import into the binary, baking the build-time CalVer in.
 // oxlint-disable-next-line import/no-relative-parent-imports
-import pkg from "../package.json" with { type: "json" };
+import pkg from "../../../package.json" with { type: "json" };
 
 const USAGE = `usage:
   miru review <file.md|.html> [--port N] [--no-open] [--unsafe-raw] [--lang L]
@@ -95,8 +94,8 @@ const { positionals, values } = parseArgs({
 });
 
 // `miru --version` / `miru -v` prints the embedded build version and exits. The
-// value is the CalVer string baked into packages/cli/package.json by the bump
-// script, so it matches the GitHub release tag the binary was built from.
+// value is the CalVer string baked into the root package.json by the bump script,
+// so it matches the GitHub release tag the binary was built from.
 if (values.version) {
   console.log(pkg.version);
   process.exit(0);
