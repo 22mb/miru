@@ -2,7 +2,7 @@ import "./register-dom.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { cleanup, render, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { Comment } from "@miru/contract";
+import type { HydratedComment } from "@miru/contract";
 import { Card } from "./Card.tsx";
 import { makeComment, makeReply } from "./fixtures.ts";
 
@@ -20,7 +20,7 @@ type Handlers = {
 
 const noop = () => {};
 
-function renderCard(comment: Partial<Comment>, h: Handlers = {}, stale = false) {
+function renderCard(comment: Partial<HydratedComment>, h: Handlers = {}, stale = false) {
   return render(
     <Card
       comment={makeComment(comment)}

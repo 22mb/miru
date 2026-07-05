@@ -1,6 +1,15 @@
 // Server API client. All calls carry the per-launch token; CSP allows connect-src
 // 'self' only, so every request stays same-origin and local.
-import type { Comment, CreateCommentBody, PatchCommentBody, ReviewFile } from "@miru/contract";
+//
+// The wire types on GET/POST/PATCH are Hydrated* — the server attaches a sanitized
+// `bodyHtml` render of `body` at response time. The persisted shape (Comment, Reply,
+// ReviewFile) has no bodyHtml.
+import type {
+  CreateCommentBody,
+  HydratedComment,
+  HydratedReviewFile,
+  PatchCommentBody,
+} from "@miru/contract";
 
 // Injected into <head> by the server (src/inject.ts); validated on every /api/* call.
 // Read per-request rather than at module-load time so tests can mount a meta tag in
@@ -22,10 +31,11 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 // Typed endpoint wrappers — keep all request shapes in one place so call sites can't
 // drift from the contract package.
 export const api = {
-  listComments: () => request<ReviewFile>("GET", "/api/comments"),
-  createComment: (body: CreateCommentBody) => request<Comment>("POST", "/api/comments", body),
+  listComments: () => request<HydratedReviewFile>("GET", "/api/comments"),
+  createComment: (body: CreateCommentBody) =>
+    request<HydratedComment>("POST", "/api/comments", body),
   patchComment: (id: string, body: PatchCommentBody) =>
-    request<Comment>("PATCH", `/api/comments/${id}`, body),
+    request<HydratedComment>("PATCH", `/api/comments/${id}`, body),
   deleteComment: (id: string) => request<unknown>("DELETE", `/api/comments/${id}`),
   submitReview: () => request<unknown>("POST", "/api/review/submit", {}),
   approve: () => request<unknown>("POST", "/api/approve", {}),

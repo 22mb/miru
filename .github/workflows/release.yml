@@ -84,16 +84,16 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      # Bundle the React frontend (packages/server/src/assets/miru.js + miru.css); these
-      # are embedded into each binary by `bun build --compile`, so this must run first.
-      # build:front also unblocks the test suite (server.ts text-imports the bundle).
+      # Bundle the React frontend (packages/frontend/dist/miru.js + miru.css); the CLI
+      # text-imports them and hands them to the server, so `bun build --compile`
+      # embeds them into each binary. This must run before the compile step below.
       - name: Build frontend
         run: bun run build:front
 
       # Re-run the exact gates ci.yml enforces — a release must never outrun them.
       # `bun build --compile` only strips types, it never checks them, so without this
       # a type error or failing test would be baked into an immutable binary. build:front
-      # already ran above, which the test suite needs (server.ts text-imports the bundle).
+      # already ran above, which the CLI text-import step needs before typecheck.
       - name: Typecheck, lint, format, and test
         run: |
           bun run typecheck

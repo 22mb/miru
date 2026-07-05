@@ -1,7 +1,7 @@
 // Single comment card with reply / resolve / delete actions. Pure presentation —
 // App owns the comment state and passes handlers down.
 import { type KeyboardEvent, type ReactNode, useActionState, useRef, useState } from "react";
-import type { Author, Comment } from "@miru/contract";
+import type { Author, HydratedComment } from "@miru/contract";
 
 const AUTHOR_LABEL: Record<Author, string> = { human: "You", agent: "Agent" };
 
@@ -31,7 +31,7 @@ function ActionButton(props: { onClick: () => void; children: ReactNode; ariaPre
 }
 
 export function Card(props: {
-  comment: Comment;
+  comment: HydratedComment;
   active: boolean;
   stale: boolean;
   // True when this comment just received a new agent reply — drives a brief CSS pulse to
