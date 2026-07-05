@@ -9,6 +9,7 @@ import {
   saveReview,
   type ReviewFile,
 } from "./store.ts";
+import { renderCommentBody } from "./render.ts";
 
 let dir: string;
 
@@ -54,7 +55,9 @@ describe("loadReview", () => {
             end: 1,
           },
           body: "hi",
-          bodyHtml: "<p>hi</p>",
+          // bodyHtml is a render cache of `body`; loadReview re-derives it, so the
+          // round-trip only holds when the stored HTML matches renderCommentBody(body).
+          bodyHtml: renderCommentBody("hi"),
           suggestion: null,
           status: "sent",
           resolved: false,
@@ -66,6 +69,52 @@ describe("loadReview", () => {
     };
     await saveReview(target, review);
     expect(await loadReview(target)).toEqual(review);
+  });
+
+  test("never trusts stored bodyHtml — re-derives it from `body` on load", async () => {
+    const target = join(dir, "doc.md");
+    // A hostile git-tracked sidecar: `bodyHtml` carries markup the write path (which
+    // runs renderCommentBody) would never produce. loadReview must not hand it to the
+    // panel verbatim — it re-derives bodyHtml from the plaintext `body`.
+    const hostile = {
+      version: 1,
+      target,
+      approved: false,
+      comments: [
+        {
+          id: "c_1",
+          anchor: { type: "text", quote: "q", prefix: "p", suffix: "s", start: 0, end: 1 },
+          body: "benign note",
+          bodyHtml: '<div style="position:fixed;inset:0"><img src=x onerror="steal()"></div>',
+          suggestion: null,
+          status: "sent",
+          resolved: false,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          pickedUpAt: null,
+          replies: [
+            {
+              id: "r_1",
+              body: "reply text",
+              bodyHtml: "<script>steal()</script>",
+              createdAt: "2026-01-01T00:00:00.000Z",
+              author: "human",
+              draft: false,
+            },
+          ],
+        },
+      ],
+    };
+    await writeFile(reviewPath(target), JSON.stringify(hostile));
+
+    const loaded = await loadReview(target);
+    const c = loaded.comments[0]!;
+    expect(c.bodyHtml).toBe(renderCommentBody("benign note"));
+    expect(c.bodyHtml).not.toContain("onerror");
+    expect(c.bodyHtml).not.toContain("position:fixed");
+
+    const r = c.replies[0]!;
+    expect(r.bodyHtml).toBe(renderCommentBody("reply text"));
+    expect(r.bodyHtml).not.toContain("<script");
   });
 
   test("an older file without `approved` parses with the schema default", async () => {
