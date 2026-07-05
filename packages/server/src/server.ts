@@ -105,6 +105,9 @@ function csp(nonce: string): string {
     // No remote origins: block external img fetches so an untrusted document can't
     // phone home (tracking pixel via <img> or CSS background:url()). Inline data: only.
     "img-src 'self' data:",
+    // Media mirrors img: local/data only. Without this, <video>/<audio> pass the
+    // sanitizer's default tier but fall to default-src 'none' and never play.
+    "media-src 'self' data:",
     "font-src 'self' data:",
     "connect-src 'self'",
     "base-uri 'none'",

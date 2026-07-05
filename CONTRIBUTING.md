@@ -61,4 +61,5 @@ also fed to AI agents). Two invariants worth calling out up front:
   failure) — never hand-parse.
 - **Don't weaken the security boundary.** miru binds `127.0.0.1` only, gates `/api/*` on a
   per-launch token, validates Host / Origin, ships a strict CSP, and sanitizes all rendered HTML
-  server-side. `--unsafe-raw` is the only sanitization escape hatch.
+  server-side (the default tier passes presentation — CSS / SVG / media — and strips executable
+  bits; `--strict` is typography-only). `--unsafe-raw` is the only sanitization escape hatch.

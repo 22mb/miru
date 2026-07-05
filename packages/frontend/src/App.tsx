@@ -30,6 +30,13 @@ const CHANGED_FLASH_MS = 3000;
 // How long a failure toast stays up before clearing itself.
 const TOAST_MS = 4000;
 
+// The server template's title, captured before React mounts. The "(N) your turn"
+// <title> below is hoisted ahead of the template's in <head> (React 19 prepends
+// hoisted titles; first in document order wins), so this must be read before any
+// hoisting. Module scope is safe: the bundle is a deferred script, so the document
+// — including its <title> — is fully parsed by now.
+const BASE_TITLE = document.title;
+
 export function App({
   initialCommentsPromise,
   changedRange,
@@ -49,19 +56,6 @@ export function App({
   useEffect(() => {
     applyHighlights(c.comments, c.activeId);
   }, [c.comments, c.activeId]);
-
-  // Surface "your turn" from another window: prefix the tab title with (N) where N is the
-  // count of comments the agent has answered but the human hasn't resolved yet. The
-  // cleanup restores the unprefixed title so remounts (tests / hot reload) can't stack
-  // `(N)` prefixes.
-  useEffect(() => {
-    const needsYou = c.comments.filter((x) => x.status === "answered" && !x.resolved).length;
-    const original = document.title.replace(/^\(\d+\)\s+/, "");
-    document.title = needsYou > 0 ? `(${needsYou}) ${original}` : original;
-    return () => {
-      document.title = original;
-    };
-  }, [c.comments]);
 
   // Post-live-reload flash: paint the changed range for CHANGED_FLASH_MS and show the
   // chip. Consuming the snapshot and diffing happen once per page load in index.tsx;
@@ -213,7 +207,11 @@ export function App({
   useEffect(() => {
     if (!armed) return;
     const onDown = (e: MouseEvent) => {
-      if (!(e.target instanceof Element && e.target.closest(".miru-approve"))) disarmApprove();
+      // composedPath()[0], not target: the confirming click on Approve retargets to the
+      // shadow host at document level — target-based matching would disarm right before
+      // the click lands, turning every second click into a re-arm.
+      const t = e.composedPath()[0];
+      if (!(t instanceof Element && t.closest(".miru-approve"))) disarmApprove();
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") disarmApprove();
@@ -240,9 +238,16 @@ export function App({
   const open = c.comments.filter((x) => !x.resolved).length;
   const resolved = c.comments.length - open;
   const drafts = c.comments.filter((x) => x.status === "draft").length;
+  // Comments the agent has answered but the human hasn't resolved — "your turn".
+  const needsYou = c.comments.filter((x) => x.status === "answered" && !x.resolved).length;
 
   return (
     <>
+      {/* Surface "your turn" from another window by prefixing the tab title. React 19
+          hoists this <title> into <head> ahead of the server template's (first in
+          document order wins) and removes it when the count drops to zero, so the
+          template title reappears — no imperative document.title bookkeeping. */}
+      {needsYou > 0 && <title>{`(${needsYou}) ${BASE_TITLE}`}</title>}
       {approved && (
         <div
           className="miru-finished"
@@ -267,7 +272,15 @@ export function App({
         </div>
       )}
       {changedChip && (
-        <div className="miru-changed-chip" role="status" aria-live="polite">
+        // Top-layer popover like the toast — a light-DOM z-index would lose to any
+        // document CSS stacking games now that document <style> passes sanitization.
+        <div
+          className="miru-changed-chip"
+          popover="manual"
+          ref={popoverRef}
+          role="status"
+          aria-live="polite"
+        >
           Doc updated — change highlighted
         </div>
       )}

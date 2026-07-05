@@ -96,6 +96,8 @@ describe("createServer — auth & routing", () => {
     expect(csp).toContain("nonce-n0nce");
     // Clickjacking guard — default-src 'none' does not cover frame-ancestors.
     expect(csp).toContain("frame-ancestors 'none'");
+    // Media parity with img: local/data only, so sanitized <video>/<audio> can play.
+    expect(csp).toContain("media-src 'self' data:");
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
   });
 
