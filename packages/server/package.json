@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@miru/contract": "workspace:*",
-    "sanitize-html": "^2.17.5"
+    "sanitize-html": "^2.17.6"
   },
   "devDependencies": {
     "@types/bun": "^1.3.14",

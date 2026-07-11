@@ -15,6 +15,7 @@ import {
   useDraftCapture,
   useKeyboardShortcuts,
   useLiveReload,
+  usePanelHidden,
   usePanelResize,
   withViewTransition,
 } from "./hooks.ts";
@@ -37,6 +38,23 @@ const TOAST_MS = 4000;
 // — including its <title> — is fully parsed by now.
 const BASE_TITLE = document.title;
 
+// Octicons "comment" — single-path SVG, no asset round-trip. Shared by the header's
+// open-count pill and the floating reopen chip.
+function CommentIcon({ className }: { className: string }) {
+  return (
+    <svg
+      className={className}
+      width="14"
+      height="14"
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d="M1 2.75C1 1.784 1.784 1 2.75 1h10.5c.966 0 1.75.784 1.75 1.75v7.5A1.75 1.75 0 0 1 13.25 12H9.06l-2.573 2.573A1.458 1.458 0 0 1 4 13.543V12H2.75A1.75 1.75 0 0 1 1 10.25Z" />
+    </svg>
+  );
+}
+
 export function App({
   initialCommentsPromise,
   changedRange,
@@ -49,9 +67,14 @@ export function App({
 }) {
   const c = useComments(initialCommentsPromise);
   const [showResolved, setShowResolved] = useState(false);
+  const [panelHidden, setPanelHidden] = usePanelHidden();
   const { draft, clearDraft } = useDraftCapture();
   useAltHoverPreview();
-  const resizerRef = usePanelResize();
+  // Dragging the resizer past the collapse threshold hides the panel (hooks.ts).
+  // Memoised: the callback is a dep of the resizer's ref callback, and a fresh arrow
+  // per render would re-wire the listeners every render.
+  const collapsePanel = useCallback(() => setPanelHidden(true), [setPanelHidden]);
+  const resizerRef = usePanelResize(collapsePanel);
 
   useEffect(() => {
     applyHighlights(c.comments, c.activeId);
@@ -284,146 +307,176 @@ export function App({
           Doc updated — change highlighted
         </div>
       )}
-      <aside
-        className="miru-panel"
-        popover="manual"
-        ref={popoverRef}
-        aria-label="miru review panel"
-      >
-        {!connected && (
-          <div className="miru-banner" role="status" aria-live="polite">
-            <span>Connection lost — the review session may have ended.</span>
-          </div>
-        )}
-        {/* Focusable so the separator role keeps its promise: arrow keys resize (see
-            usePanelResize), which also maintains aria-valuenow/min/max imperatively. */}
-        <div
-          ref={resizerRef}
-          className="miru-panel__resizer"
-          role="separator"
-          tabIndex={0}
-          aria-orientation="vertical"
-          aria-label="Resize panel"
-        />
-        <header className="miru-panel__head">
-          <span
-            className="miru-count"
-            data-empty={open === 0 || undefined}
-            aria-label={`${open} unresolved comment${open === 1 ? "" : "s"}`}
-          >
-            {/* Octicons "comment" — single-path SVG, no asset round-trip. */}
-            <svg
-              className="miru-count__icon"
-              width="14"
-              height="14"
-              viewBox="0 0 16 16"
-              fill="currentColor"
-              aria-hidden="true"
-            >
-              <path d="M1 2.75C1 1.784 1.784 1 2.75 1h10.5c.966 0 1.75.784 1.75 1.75v7.5A1.75 1.75 0 0 1 13.25 12H9.06l-2.573 2.573A1.458 1.458 0 0 1 4 13.543V12H2.75A1.75 1.75 0 0 1 1 10.25Z" />
-            </svg>
-            <span className="miru-count__label">open</span>
-            <span className="miru-count__n">{open}</span>
-          </span>
-          {resolved > 0 && (
-            <button
-              type="button"
-              className="miru-count miru-count--resolved"
-              // View transition name so the pill morphs in/out when resolved crosses zero.
-              style={{ viewTransitionName: "miru-resolved-toggle" }}
-              data-pressed={showResolved || undefined}
-              aria-pressed={showResolved}
-              aria-label={`${showResolved ? "Hide" : "Show"} ${resolved} resolved comment${resolved === 1 ? "" : "s"}`}
-              onClick={() => withViewTransition(() => setShowResolved((v) => !v))}
-            >
-              {/* Octicons "check-circle" — checkmark-in-circle, matches GitHub's resolved state. */}
-              <svg
-                className="miru-count__icon"
-                width="14"
-                height="14"
-                viewBox="0 0 16 16"
-                fill="currentColor"
-                aria-hidden="true"
-              >
-                <path d="M8 16A8 8 0 1 1 8 0a8 8 0 0 1 0 16Zm3.78-9.72a.751.751 0 0 0-.018-1.042.751.751 0 0 0-1.042-.018L6.75 9.19 5.28 7.72a.751.751 0 0 0-1.042.018.751.751 0 0 0-.018 1.042l2 2a.75.75 0 0 0 1.06 0Z" />
-              </svg>
-              <span className="miru-count__label">resolved</span>
-              <span className="miru-count__n">{resolved}</span>
-            </button>
+      {panelHidden ? (
+        // The way back in: a floating chip in the panel's home corner, top-layer like
+        // the panel itself so document CSS can never bury it. Carries the open count
+        // (and the "your turn" tint) so a hidden panel still surfaces review state.
+        <button
+          type="button"
+          className="miru-reopen"
+          popover="manual"
+          ref={popoverRef}
+          data-empty={open === 0 || undefined}
+          data-attention={needsYou > 0 || undefined}
+          aria-label={`Show review panel (${open} open comment${open === 1 ? "" : "s"})`}
+          title="Show panel"
+          onClick={() => withViewTransition(() => setPanelHidden(false))}
+        >
+          <CommentIcon className="miru-reopen__icon" />
+          <span className="miru-reopen__n">{open}</span>
+        </button>
+      ) : (
+        <aside
+          className="miru-panel"
+          popover="manual"
+          ref={popoverRef}
+          aria-label="miru review panel"
+        >
+          {!connected && (
+            <div className="miru-banner" role="status" aria-live="polite">
+              <span>Connection lost — the review session may have ended.</span>
+            </div>
           )}
-          <div className="miru-head-actions">
-            {drafts > 0 && (
-              <form className="miru-head-form" action={submitReviewAction}>
+          {/* Focusable so the separator role keeps its promise: arrow keys resize (see
+            usePanelResize), which also maintains aria-valuenow/min/max imperatively. */}
+          <div
+            ref={resizerRef}
+            className="miru-panel__resizer"
+            role="separator"
+            tabIndex={0}
+            aria-orientation="vertical"
+            aria-label="Resize panel"
+          />
+          <header className="miru-panel__head">
+            <span
+              className="miru-count"
+              data-empty={open === 0 || undefined}
+              aria-label={`${open} unresolved comment${open === 1 ? "" : "s"}`}
+            >
+              <CommentIcon className="miru-count__icon" />
+              <span className="miru-count__label">open</span>
+              <span className="miru-count__n">{open}</span>
+            </span>
+            {resolved > 0 && (
+              <button
+                type="button"
+                className="miru-count miru-count--resolved"
+                // View transition name so the pill morphs in/out when resolved crosses zero.
+                style={{ viewTransitionName: "miru-resolved-toggle" }}
+                data-pressed={showResolved || undefined}
+                aria-pressed={showResolved}
+                aria-label={`${showResolved ? "Hide" : "Show"} ${resolved} resolved comment${resolved === 1 ? "" : "s"}`}
+                onClick={() => withViewTransition(() => setShowResolved((v) => !v))}
+              >
+                {/* Octicons "check-circle" — checkmark-in-circle, matches GitHub's resolved state. */}
+                <svg
+                  className="miru-count__icon"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 16 16"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path d="M8 16A8 8 0 1 1 8 0a8 8 0 0 1 0 16Zm3.78-9.72a.751.751 0 0 0-.018-1.042.751.751 0 0 0-1.042-.018L6.75 9.19 5.28 7.72a.751.751 0 0 0-1.042.018.751.751 0 0 0-.018 1.042l2 2a.75.75 0 0 0 1.06 0Z" />
+                </svg>
+                <span className="miru-count__label">resolved</span>
+                <span className="miru-count__n">{resolved}</span>
+              </button>
+            )}
+            <div className="miru-head-actions">
+              {drafts > 0 && (
+                <form className="miru-head-form" action={submitReviewAction}>
+                  <button
+                    type="submit"
+                    className="miru-submit-review"
+                    // VT name so the button morphs in/out on the drafts==0 boundary.
+                    style={{ viewTransitionName: "miru-submit-review" }}
+                    disabled={submittingReview}
+                    aria-label={`Submit ${drafts} staged draft comment${drafts === 1 ? "" : "s"} to the agent`}
+                  >
+                    Submit review ({drafts})
+                  </button>
+                </form>
+              )}
+              <form className="miru-head-form" action={approveAction}>
                 <button
                   type="submit"
-                  className="miru-submit-review"
-                  // VT name so the button morphs in/out on the drafts==0 boundary.
-                  style={{ viewTransitionName: "miru-submit-review" }}
-                  disabled={submittingReview}
-                  aria-label={`Submit ${drafts} staged draft comment${drafts === 1 ? "" : "s"} to the agent`}
+                  className="miru-approve"
+                  data-armed={armed || undefined}
+                  disabled={approved || approving}
+                  aria-label={
+                    armed
+                      ? "Click again to approve and end the review"
+                      : "Approve and end the review"
+                  }
                 >
-                  Submit review ({drafts})
+                  {armed ? "Sure?" : "Approve"}
                 </button>
               </form>
-            )}
-            <form className="miru-head-form" action={approveAction}>
               <button
-                type="submit"
-                className="miru-approve"
-                data-armed={armed || undefined}
-                disabled={approved || approving}
-                aria-label={
-                  armed ? "Click again to approve and end the review" : "Approve and end the review"
-                }
+                type="button"
+                className="miru-panel-hide"
+                aria-label="Hide review panel"
+                title="Hide panel"
+                onClick={() => withViewTransition(() => setPanelHidden(true))}
               >
-                {armed ? "Sure?" : "Approve"}
+                {/* Octicons "chevron-right" — the panel slides away toward the right edge. */}
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 16 16"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z" />
+                </svg>
               </button>
-            </form>
-          </div>
-        </header>
-        {visible.length === 0 ? (
-          <div className="miru-panel__list">
-            <p className="miru-empty">
-              Select text to comment, or <kbd>Alt</kbd>+click an element.
-            </p>
-          </div>
-        ) : (
-          <ul
-            className="miru-panel__list"
-            aria-label={`${visible.length} comment${visible.length === 1 ? "" : "s"}`}
-          >
-            {visible.map((cm) => (
-              <li key={cm.id} className="miru-panel__item">
-                <Card
-                  comment={cm}
-                  active={cm.id === c.activeId}
-                  stale={c.staleIds.has(cm.id)}
-                  fresh={c.freshReplyIds.has(cm.id)}
-                  onActivate={() => c.focusComment(cm.id)}
-                  onHover={onCardHover}
-                  onRemove={() => {
-                    // The card vanishes under the pointer — mouseleave never fires,
-                    // so clear the hover preview explicitly.
-                    applyPreviewHighlight(null);
-                    void guard(c.remove, "Couldn't delete — server unreachable")(cm.id);
-                  }}
-                  onToggle={() =>
-                    void guard(c.toggleResolved, "Couldn't update — server unreachable")(cm)
-                  }
-                  onReply={(body) =>
-                    guard(c.reply, "Couldn't save — server unreachable")(cm.id, body)
-                  }
-                />
-              </li>
-            ))}
-          </ul>
-        )}
-        {/* Always-visible shortcut reminder — the empty state's hint disappears the
+            </div>
+          </header>
+          {visible.length === 0 ? (
+            <div className="miru-panel__list">
+              <p className="miru-empty">
+                Select text to comment, or <kbd>Alt</kbd>+click an element.
+              </p>
+            </div>
+          ) : (
+            <ul
+              className="miru-panel__list"
+              aria-label={`${visible.length} comment${visible.length === 1 ? "" : "s"}`}
+            >
+              {visible.map((cm) => (
+                <li key={cm.id} className="miru-panel__item">
+                  <Card
+                    comment={cm}
+                    active={cm.id === c.activeId}
+                    stale={c.staleIds.has(cm.id)}
+                    fresh={c.freshReplyIds.has(cm.id)}
+                    onActivate={() => c.focusComment(cm.id)}
+                    onHover={onCardHover}
+                    onRemove={() => {
+                      // The card vanishes under the pointer — mouseleave never fires,
+                      // so clear the hover preview explicitly.
+                      applyPreviewHighlight(null);
+                      void guard(c.remove, "Couldn't delete — server unreachable")(cm.id);
+                    }}
+                    onToggle={() =>
+                      void guard(c.toggleResolved, "Couldn't update — server unreachable")(cm)
+                    }
+                    onReply={(body) =>
+                      guard(c.reply, "Couldn't save — server unreachable")(cm.id, body)
+                    }
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+          {/* Always-visible shortcut reminder — the empty state's hint disappears the
             moment a comment exists, but j/k/r/Esc keep working. */}
-        <footer className="miru-panel__foot" aria-label="keyboard shortcuts">
-          <kbd>j</kbd>/<kbd>k</kbd> navigate · <kbd>r</kbd> resolve · <kbd>Esc</kbd> cancel draft
-        </footer>
-      </aside>
+          <footer className="miru-panel__foot" aria-label="keyboard shortcuts">
+            <kbd>j</kbd>/<kbd>k</kbd> navigate · <kbd>r</kbd> resolve · <kbd>Esc</kbd> cancel draft
+          </footer>
+        </aside>
+      )}
     </>
   );
 }

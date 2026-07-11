@@ -3,7 +3,7 @@
 // Element anchors restore by selector -> role + accessible name -> tag-chain + text-hint.
 // When nothing matches the anchor is `stale` (kept, not dropped).
 import type { Comment, ElementAnchor, TextAnchor } from "@miru/contract";
-import { DOC, docText, offsetOf, rangeFromOffsets } from "./dom.ts";
+import { DOC, docScroller, docText, offsetOf, rangeFromOffsets } from "./dom.ts";
 
 const ANCHOR_CONTEXT_LEN = 32; // chars of context stored around a text anchor, for re-anchoring after edits
 const TEXT_HINT_LEN = 64; // max chars of element text used as accessible name / hint
@@ -181,13 +181,18 @@ export function anchorRect(c: Comment): DOMRect | null {
 // Scroll the page so the anchor sits at the vertical center of the viewport. Uses the
 // Range/element rect directly instead of Element.scrollIntoView on a parent: a parent
 // `<p>` that wraps to many visual lines would centre its own middle, pushing the actual
-// highlighted text out of view. window.scrollBy clamps to document bounds, so a target
-// near the top/bottom falls back to a partial scroll automatically.
+// highlighted text out of view. scrollBy clamps to scroll bounds, so a target near the
+// top/bottom falls back to a partial scroll automatically. The target is the document's
+// own scroll container when it has one (docScroller fills the viewport vertically, so
+// the same viewport-relative math holds), else the window.
 export function scrollToComment(c: Comment): void {
   const rect = anchorRect(c);
   if (!rect) return;
   const delta = rect.top + rect.height / 2 - window.innerHeight / 2;
-  window.scrollBy({ top: delta, behavior: "smooth" });
+  const opts: ScrollToOptions = { top: delta, behavior: "smooth" };
+  const scroller = docScroller();
+  if (scroller) scroller.scrollBy(opts);
+  else window.scrollBy(opts);
 }
 
 export function isStale(c: Comment, fullText?: string): boolean {

@@ -8,7 +8,7 @@ import { Component, type ReactNode, StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { api } from "./api.ts";
 import { App } from "./App.tsx";
-import { consumePreReloadText, diffRange, DOC, docText } from "./dom.ts";
+import { consumePreReloadText, diffRange, DOC, docText, persistDocScroll } from "./dom.ts";
 import { popoverRef } from "./hooks.ts";
 import panelCss from "./panel.css" with { type: "text" };
 
@@ -22,6 +22,10 @@ const initialCommentsPromise = api.listComments();
 // document text is fully parsed by now.
 const preReloadText = consumePreReloadText();
 const changedRange = preReloadText === null ? null : diffRange(preReloadText, docText(DOC()));
+
+// Restore the reading position and arm the pagehide save (see dom.ts). Module scope for
+// the same reason as the snapshot above: once per page load, document already parsed.
+persistDocScroll();
 
 // Failure wall between the panel and the page: if the initial fetch rejects through
 // `use()` (server gone between page load and fetch, token mismatch) or App throws while

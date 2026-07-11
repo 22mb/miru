@@ -98,6 +98,43 @@
     padding-right: var(--miru-panel-w);
   }
 
+  /* Template-owned pages (Markdown / sanitized HTML — always body > main.miru-doc)
+     scroll the document inside its own container instead of the viewport, so the
+     scrollbar appears at the document/panel boundary rather than at the window edge
+     on the far side of the panel. The panel offset moves from body padding to the
+     container's margin accordingly. Raw (--unsafe-raw) documents keep their own
+     <body> and native viewport scrolling — for them DOC is a <div>, not this <main>.
+     Scroll restore across reloads is ours now, not the browser's: see persistDocScroll
+     in dom.ts. */
+  html:has(> body > main.miru-doc) {
+    overflow: hidden;
+  }
+  body:has(> main.miru-doc) {
+    margin: 0;
+    padding-right: 0;
+    height: 100dvh;
+  }
+  body > main.miru-doc {
+    height: 100dvh;
+    overflow: auto;
+    box-sizing: border-box;
+    margin-right: var(--miru-panel-w);
+    /* Reserve the scrollbar gutter on classic-scrollbar platforms so the document
+       doesn't shift sideways when its height crosses one screen. */
+    scrollbar-gutter: stable;
+  }
+
+  /* Panel hidden via its header toggle: hand the reserved width back to the document.
+     The attribute lives on <html>, written by hooks.ts — at module scope on load and
+     from the toggle afterwards — so the first paint after a live reload already has
+     the right layout. --miru-panel-w itself is left alone; it remembers the width. */
+  html[data-miru-panel-hidden] body {
+    padding-right: 0;
+  }
+  html[data-miru-panel-hidden] body > main.miru-doc {
+    margin-right: 0;
+  }
+
   /* Markdown only: miru owns the page theme because the doc ships none. An HTML doc
      keeps the UA default (white even in dark OS mode) — "what a normal browser tab
      shows" is the fidelity target there. color-scheme also gets form controls /
