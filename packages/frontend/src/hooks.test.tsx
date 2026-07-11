@@ -363,7 +363,9 @@ describe("useComments", () => {
 
 describe("usePanelResize", () => {
   function Harness() {
-    const ref = usePanelResize();
+    // Collapse callback unused here: the keyboard path never crosses the drag-only
+    // collapse threshold (drag mechanics are exercised in the browser, not happy-dom).
+    const ref = usePanelResize(() => {});
     return <div ref={ref} role="separator" tabIndex={0} aria-label="Resize panel" />;
   }
 

@@ -44,6 +44,9 @@ afterEach(() => {
   globalThis.fetch = RealFetch;
   (globalThis as { EventSource: unknown }).EventSource = RealEventSource;
   document.body.innerHTML = "";
+  // Panel-hidden state leaks through sessionStorage + an <html> attribute (hooks.ts).
+  sessionStorage.clear();
+  document.documentElement.removeAttribute("data-miru-panel-hidden");
 });
 
 async function renderApp(review: HydratedReviewFile) {
@@ -88,5 +91,24 @@ describe("App", () => {
     expect(view.queryByText("first note")).toBeNull();
     expect(view.getByRole("button", { name: "Show 1 resolved comment" })).toBeDefined();
     expect(requests.some((r) => r.method === "PATCH" && r.path === "/api/comments/c1")).toBe(true);
+  });
+
+  test("panel hides behind the header toggle and comes back from the floating chip", async () => {
+    const user = userEvent.setup();
+    const c = makeComment({ id: "c1", bodyHtml: "<p>first note</p>" });
+    const view = await renderApp(makeReview([c]));
+
+    await user.click(view.getByRole("button", { name: "Hide review panel" }));
+    // Panel gone: its content unmounts, the document side sees the <html> attribute,
+    // and the choice is persisted so it survives a live reload.
+    expect(view.queryByText("first note")).toBeNull();
+    expect(document.documentElement.hasAttribute("data-miru-panel-hidden")).toBe(true);
+    expect(sessionStorage.getItem("miru:panel-hidden")).toBe("1");
+
+    // The chip advertises the open count and restores everything on click.
+    await user.click(view.getByRole("button", { name: "Show review panel (1 open comment)" }));
+    view.getByText("first note");
+    expect(document.documentElement.hasAttribute("data-miru-panel-hidden")).toBe(false);
+    expect(sessionStorage.getItem("miru:panel-hidden")).toBeNull();
   });
 });

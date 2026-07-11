@@ -1,23 +1,397 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>miru HTML sample</title>
-  <style>
-    body { font-family: Georgia, serif; max-width: 640px; }
-    h1 { color: #1a7f37; border-bottom: 2px solid #1a7f37; padding-bottom: 4px; }
-    .callout { background: #fff8c5; border-left: 4px solid #d4a72c; padding: 8px 12px; }
-  </style>
+<meta charset="utf-8">
+<title>PL-9 Telemetry &amp; Calibration Reference (Rev. 7 draft)</title>
+<!-- Rich-HTML review target: exercises everything the default sanitize tier lets
+     through — document <style>, tables (colspan/rowspan/scope), inline SVG diagrams,
+     data-URI images, details/summary, task lists, dl, ins/del/mark, footnotes.
+     Every element here stays inside the default-tier allowlist (see render.ts), so
+     what you review is what the sanitizer actually ships. -->
+<style>
+  :root {
+    --paper: #ffffff;
+    --ink: #1c2432;
+    --muted: #5c6a80;
+    --line: #d7dde8;
+    --accent: #2458c5;
+    --soft: #f2f5fa;
+    --warn-edge: #d4a72c;
+    --warn-bg: #fff8e0;
+    --ins-ink: #1a7f37;
+    /* Scheme-aware UA rendering (canvas, scrollbars, form controls). */
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #151b28;
+      --ink: #dde4f0;
+      --muted: #93a1ba;
+      --line: #303c52;
+      --accent: #7aa5f7;
+      --soft: #1d2534;
+      --warn-edge: #b58a1e;
+      --warn-bg: #2a2410;
+      --ins-ink: #57d98a;
+    }
+  }
+  /* Flat full-bleed page — the document paints its own canvas edge to edge, so there
+     is no UA-white frame around it in dark mode. margin only; padding stays free for
+     miru's panel offset. */
+  body {
+    margin: 0;
+    background: var(--paper);
+  }
+  .spec {
+    max-width: 54rem;
+    margin: 0 auto;
+    padding: 2.5rem 3rem;
+    color: var(--ink);
+    font: 16px/1.65 Charter, Georgia, serif;
+  }
+  .spec h1 { font-size: 1.7rem; line-height: 1.25; margin: 0.4rem 0 0.8rem; }
+  .spec h2 { font-size: 1.25rem; margin-top: 2.4rem; border-bottom: 1px solid var(--line); padding-bottom: 0.3rem; }
+  .spec .doc-id { color: var(--muted); font-size: 0.85rem; letter-spacing: 0.06em; text-transform: uppercase; margin: 0; }
+  .spec .badge {
+    display: inline-block; font: 600 0.72rem/1 system-ui, sans-serif; letter-spacing: 0.04em;
+    padding: 0.3em 0.6em; border-radius: 999px; border: 1px solid var(--line); color: var(--muted);
+  }
+  .spec .badge--draft { color: #fff; background: #c5483a; border-color: #c5483a; }
+  .spec table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: 0.92rem; }
+  .spec caption { caption-side: bottom; color: var(--muted); font-size: 0.85rem; padding-top: 0.5rem; text-align: left; }
+  .spec th, .spec td { border: 1px solid var(--line); padding: 0.4rem 0.65rem; text-align: left; vertical-align: top; }
+  .spec thead th { background: var(--soft); font-family: system-ui, sans-serif; font-size: 0.82rem; }
+  .spec tbody tr:nth-child(even) { background: color-mix(in srgb, var(--soft) 55%, transparent); }
+  .spec td.num, .spec th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .spec figure { margin: 1.4rem 0; }
+  .spec figure svg, .spec figure img { max-width: 100%; height: auto; display: block; border-radius: 6px; }
+  .spec figcaption { color: var(--muted); font-size: 0.85rem; margin-top: 0.5rem; }
+  .spec code, .spec kbd { font: 0.86em/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .spec code { background: var(--soft); padding: 0.1em 0.35em; border-radius: 4px; }
+  .spec pre { background: var(--soft); border: 1px solid var(--line); border-radius: 6px; padding: 0.9rem 1.1rem; overflow-x: auto; }
+  .spec pre code { background: none; padding: 0; }
+  .spec kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0.05em 0.4em; background: var(--soft); }
+  .spec blockquote.warn { margin: 1.2rem 0; padding: 0.7rem 1rem; border-left: 4px solid var(--warn-edge); background: var(--warn-bg); }
+  .spec blockquote.warn p { margin: 0; }
+  .spec nav.toc { background: var(--soft); border: 1px solid var(--line); border-radius: 6px; padding: 0.9rem 1.2rem; font-size: 0.92rem; }
+  .spec nav.toc ol { margin: 0.4rem 0 0; padding-left: 1.4rem; }
+  .spec a { color: var(--accent); }
+  .spec dl dt { font-weight: 700; margin-top: 0.7rem; }
+  .spec dl dd { margin: 0.15rem 0 0 1.4rem; color: var(--muted); }
+  .spec ul.tasks { list-style: none; padding-left: 0.4rem; }
+  .spec details { border: 1px solid var(--line); border-radius: 6px; padding: 0.6rem 1rem; margin: 1.2rem 0; }
+  .spec summary { cursor: pointer; font-weight: 600; font-family: system-ui, sans-serif; font-size: 0.95rem; }
+  .spec .footnotes { color: var(--muted); font-size: 0.85rem; }
+  .spec ins { color: var(--ins-ink); text-decoration: none; border-bottom: 1px dashed var(--ins-ink); }
+  .spec del { color: var(--muted); }
+  /* <mark> keeps the UA's yellow in both schemes, so pin dark ink onto it — and a
+     nested <code> must not reapply the scheme's chip background (dark-on-dark). */
+  .spec mark { background: #fde047; color: #1c2432; padding: 0 0.15em; border-radius: 3px; }
+  .spec mark code { background: transparent; color: inherit; }
+</style>
 </head>
 <body>
-  <h1>HTML input sample</h1>
-  <p>This is a review target for <strong>HTML input</strong>. Select this paragraph to attach a comment.</p>
-  <p class="callout">This callout is styled by the document's own <code>&lt;style&gt;</code> block — the default sanitization tier lets it through (use <code>--strict</code> to drop it).</p>
-  <img src="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27240%27%20height%3D%2790%27%3E%3Crect%20width%3D%27240%27%20height%3D%2790%27%20rx%3D%278%27%20fill%3D%27%231a7f37%27%2F%3E%3Ctext%20x%3D%27120%27%20y%3D%2752%27%20font-size%3D%2722%27%20fill%3D%27white%27%20text-anchor%3D%27middle%27%3Ehtml%3C%2Ftext%3E%3C%2Fsvg%3E" alt="Sample figure">
-  <svg viewBox="0 0 120 40" width="120" height="40" role="img" aria-label="Inline SVG sample">
-    <rect width="120" height="40" rx="8" fill="#0969da"/>
-    <text x="60" y="26" font-size="16" fill="white" text-anchor="middle">inline svg</text>
-  </svg>
-  <pre><code>const y = 2;</code></pre>
+<article class="spec">
+
+<header>
+  <p class="doc-id">ORL-STD-0142 · supersedes rev. 6 (2025-11-02)</p>
+  <h1>PL-9 “Aurora” Photonic Lattice Array —<br>Telemetry &amp; Calibration Reference</h1>
+  <p>
+    <span class="badge badge--draft">DRAFT</span>
+    <span class="badge">Revision 7</span>
+    <span class="badge">2026-07-02</span>
+    <span class="badge">Applies to silicon rev. C2+</span>
+  </p>
+  <table>
+    <tbody>
+      <tr><th scope="row">Editors</th><td>M. Okonkwo (sensing), R. Přibyl (mixed-signal), the PL-9 firmware group</td></tr>
+      <tr><th scope="row">Status</th><td>Working draft — <mark>register offsets above <code>0x48</code> are provisional</mark> until tape-out review closes</td></tr>
+      <tr><th scope="row">Distribution</th><td>Internal; supplier excerpts by request via the usual channel</td></tr>
+    </tbody>
+  </table>
+</header>
+
+<section id="abstract">
+  <h2>Abstract</h2>
+  <p>
+    The PL-9 is a 64 × 64 photonic lattice array with per-tap transimpedance
+    amplification, on-die <abbr title="sigma-delta">ΣΔ</abbr> conversion, and a
+    self-hosted calibration engine that corrects
+    <abbr title="photo-response non-uniformity">PRNU</abbr> and dark-current drift
+    without host involvement.<sup><a href="#fn1">1</a></sup> This reference defines
+    the telemetry frame format, the acquisition timing contract, and the calibration
+    procedure that field units must complete before their measurements may be
+    labelled <em>traceable</em>. It replaces the Rev. 6 text everywhere except §4.3
+    of that document, which survives verbatim for contractual reasons nobody is
+    proud of.<sup><a href="#fn2">2</a></sup>
+  </p>
+</section>
+
+<nav class="toc" id="contents">
+  <strong>Contents</strong>
+  <ol>
+    <li><a href="#overview">Signal-chain overview</a></li>
+    <li><a href="#timing">Acquisition timing</a></li>
+    <li><a href="#registers">Register map (calibration block)</a></li>
+    <li><a href="#calibration">Field calibration procedure</a></li>
+    <li><a href="#verification">Verification results, lot E-114</a></li>
+    <li><a href="#terminology">Terminology</a></li>
+  </ol>
+</nav>
+
+<section id="overview">
+  <h2>1. Signal-chain overview</h2>
+  <p>
+    Photocurrent from each lattice tap is integrated by a dedicated
+    <abbr title="transimpedance amplifier">TIA</abbr>, multiplexed 16:1 onto 256
+    ΣΔ modulators, and decimated on-die. The calibration engine sits <em>between</em>
+    the decimators and the framer: every 24-bit sample leaving the chip has already
+    been gain- and offset-corrected, which is why host-side correction tables are
+    <strong>not supported</strong> and requests for them will be redirected to this
+    paragraph.
+  </p>
+  <figure>
+    <svg viewBox="0 0 920 300" role="img" aria-label="PL-9 signal chain block diagram">
+      <rect width="920" height="300" rx="10" fill="#101623"/>
+      <rect x="22" y="34" width="470" height="180" rx="8" fill="#16203a" stroke="#33415e" stroke-dasharray="6 5"/>
+      <text x="34" y="56" fill="#7f92bc" font-size="12" font-family="system-ui,sans-serif">analog domain — AVDD 2.8 V</text>
+      <rect x="508" y="34" width="390" height="180" rx="8" fill="#141d31" stroke="#33415e" stroke-dasharray="6 5"/>
+      <text x="520" y="56" fill="#7f92bc" font-size="12" font-family="system-ui,sans-serif">digital domain — DVDD 0.9 V</text>
+      <g font-family="system-ui,sans-serif" font-size="13" text-anchor="middle">
+        <rect x="40" y="80" width="120" height="62" rx="6" fill="#1d2c4f" stroke="#5aa2ff"/>
+        <text x="100" y="106" fill="#dbe6ff">photonic lattice</text>
+        <text x="100" y="124" fill="#8fa3c8" font-size="12">64 × 64 taps</text>
+        <rect x="196" y="80" width="120" height="62" rx="6" fill="#1d2c4f" stroke="#5aa2ff"/>
+        <text x="256" y="106" fill="#dbe6ff">TIA array</text>
+        <text x="256" y="124" fill="#8fa3c8" font-size="12">4,096 channels</text>
+        <rect x="352" y="80" width="120" height="62" rx="6" fill="#1d2c4f" stroke="#5aa2ff"/>
+        <text x="412" y="106" fill="#dbe6ff">mux + ΣΔ ADC</text>
+        <text x="412" y="124" fill="#8fa3c8" font-size="12">16:1 · 256 × 24-bit</text>
+        <rect x="530" y="80" width="120" height="62" rx="6" fill="#232043" stroke="#b18cff"/>
+        <text x="590" y="106" fill="#e9dfff">cal engine</text>
+        <text x="590" y="124" fill="#a795cc" font-size="12">PRNU LUT + dark</text>
+        <rect x="686" y="80" width="120" height="62" rx="6" fill="#232043" stroke="#b18cff"/>
+        <text x="746" y="106" fill="#e9dfff">telemetry framer</text>
+        <text x="746" y="124" fill="#a795cc" font-size="12">CRC-32C</text>
+      </g>
+      <g stroke="#8fa3c8" stroke-width="2">
+        <line x1="160" y1="111" x2="188" y2="111"/>
+        <line x1="316" y1="111" x2="344" y2="111"/>
+        <line x1="472" y1="111" x2="522" y2="111"/>
+        <line x1="650" y1="111" x2="678" y2="111"/>
+        <line x1="806" y1="111" x2="862" y2="111"/>
+      </g>
+      <g fill="#8fa3c8">
+        <polygon points="188,105 188,117 198,111"/>
+        <polygon points="344,105 344,117 354,111"/>
+        <polygon points="522,105 522,117 532,111"/>
+        <polygon points="678,105 678,117 688,111"/>
+        <polygon points="862,105 862,117 872,111"/>
+      </g>
+      <text x="864" y="96" fill="#dbe6ff" font-size="12" font-family="system-ui,sans-serif" text-anchor="end">host link</text>
+      <text x="864" y="134" fill="#8fa3c8" font-size="11" font-family="system-ui,sans-serif" text-anchor="end">12.8 Gb/s</text>
+      <path d="M590 142 V 236 H 256 V 146" fill="none" stroke="#ffb454" stroke-width="2" stroke-dasharray="7 5"/>
+      <polygon points="250,150 262,150 256,140" fill="#ffb454"/>
+      <text x="423" y="230" fill="#ffb454" font-size="12" font-family="system-ui,sans-serif" text-anchor="middle">per-tap bias trim — 10-bit DAC, closed every frame</text>
+      <g font-family="system-ui,sans-serif" font-size="12">
+        <rect x="40" y="246" width="110" height="34" rx="6" fill="#12233c" stroke="#3d5c88"/>
+        <text x="95" y="267" fill="#9fc0e8" text-anchor="middle">PLL · 1.6 GHz</text>
+        <line x1="150" y1="263" x2="412" y2="263" stroke="#3d5c88" stroke-width="1.5" stroke-dasharray="2 4"/>
+        <line x1="412" y1="263" x2="412" y2="146" stroke="#3d5c88" stroke-width="1.5" stroke-dasharray="2 4"/>
+      </g>
+    </svg>
+    <figcaption>Fig. 1 — PL-9 signal chain. The calibration engine is in-line: raw
+    (uncorrected) samples never leave the die except in factory test mode.</figcaption>
+  </figure>
+</section>
+
+<section id="timing">
+  <h2>2. Acquisition timing</h2>
+  <p>
+    The modulator clock is an integer division of the PLL output; the effective
+    sample rate per tap is
+    <var>f</var><sub>tap</sub> = <var>f</var><sub>MCLK</sub> / (16 · <abbr title="oversampling ratio">OSR</abbr>),
+    and the integration window must satisfy
+    <var>t</var><sub>INT</sub> ≥ 3/<var>f</var><sub>tap</sub> + <var>t</var><sub>settle</sub>.
+    Violating the setup margin in Table 1 does not produce an error flag; it produces
+    <em>plausible-looking wrong data</em>, which is worse, so read the table twice.
+  </p>
+  <figure>
+    <svg viewBox="0 0 920 250" role="img" aria-label="Frame timing diagram">
+      <rect width="920" height="250" rx="10" fill="#101623"/>
+      <g font-family="ui-monospace,monospace" font-size="13" fill="#8fa3c8" text-anchor="end">
+        <text x="108" y="66">MCLK</text>
+        <text x="108" y="130">FRAME_SYNC</text>
+        <text x="108" y="196">TAP_DATA[23:0]</text>
+      </g>
+      <path d="M124 76 v-24 h24 v24 h24 v-24 h24 v24 h24 v-24 h24 v24 h24 v-24 h24 v24 h24 v-24 h24 v24 h24 v-24 h24 v24 h24 v-24 h24 v24 h24 v-24 h24 v24 h24 v-24 h24 v24 h24 v-24 h24 v24 h24 v-24 h24 v24 h24 v-24 h24 v24 h24 v-24 h24 v24 h24 v-24 h24 v24 h24 v-24 h24 v24" fill="none" stroke="#5aa2ff" stroke-width="2"/>
+      <path d="M124 140 h48 v-26 h36 v26 h432 v-26 h36 v26 h120" fill="none" stroke="#5cffc4" stroke-width="2"/>
+      <g stroke="#c9d4e8" stroke-width="1.5">
+        <path d="M124 206 h60 l10 -22 h130 l10 22 h20 l10 -22 h130 l10 22 h20 l10 -22 h130 l10 22 h116" fill="none"/>
+        <path d="M184 206 l10 -22 M194 184 l-10 22" fill="none"/>
+      </g>
+      <g font-family="ui-monospace,monospace" font-size="12" fill="#c9d4e8" text-anchor="middle">
+        <text x="269" y="200">tap 0</text>
+        <text x="439" y="200">tap 1</text>
+        <text x="609" y="200">tap 2</text>
+      </g>
+      <g stroke="#ffb454" stroke-width="1.5">
+        <line x1="172" y1="104" x2="640" y2="104"/>
+        <line x1="172" y1="98" x2="172" y2="110"/>
+        <line x1="640" y1="98" x2="640" y2="110"/>
+      </g>
+      <text x="406" y="96" fill="#ffb454" font-size="12" font-family="ui-monospace,monospace" text-anchor="middle">t_INT (one frame, 4,096 taps)</text>
+      <text x="470" y="234" fill="#7f92bc" font-size="11" font-family="system-ui,sans-serif" text-anchor="middle">data transitions are launched on MCLK falling edges; capture at the receiver on the second rising edge after FRAME_SYNC deasserts</text>
+    </svg>
+    <figcaption>Fig. 2 — Frame timing. <code>FRAME_SYNC</code> brackets exactly one
+    lattice scan; partial frames are discarded by the framer, not padded.</figcaption>
+  </figure>
+  <table>
+    <caption>Table 1 — Acquisition timing parameters (T<sub>J</sub> = −20…85 °C, AVDD = 2.8 V ± 2 %).</caption>
+    <thead>
+      <tr><th scope="col">Symbol</th><th scope="col">Parameter</th><th scope="col" class="num">Min</th><th scope="col" class="num">Typ</th><th scope="col" class="num">Max</th><th scope="col">Unit</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>f_MCLK</code></td><td>Modulator clock</td><td class="num">25</td><td class="num">100</td><td class="num">200</td><td>MHz</td></tr>
+      <tr><td><code>t_INT</code></td><td>Integration window per frame</td><td class="num">0.82</td><td class="num">3.3</td><td class="num">840</td><td>ms</td></tr>
+      <tr><td><code>t_SU</code></td><td>Data setup, receiver capture</td><td class="num">1.4</td><td class="num">—</td><td class="num">—</td><td>ns</td></tr>
+      <tr><td><code>t_H</code></td><td>Data hold, receiver capture</td><td class="num">0.9</td><td class="num">—</td><td class="num">—</td><td>ns</td></tr>
+      <tr><td><code>t_j</code></td><td>PLL period jitter, RMS</td><td class="num">—</td><td class="num">1.1</td><td class="num">2.5</td><td>ps</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="registers">
+  <h2>3. Register map — calibration block (<code>0x30…0x4F</code>)</h2>
+  <p>
+    All registers are 32-bit, little-endian, and readable at any time; writes to a
+    running calibration are ignored and latched into the <code>CAL_STAT.WLOST</code>
+    sticky bit, because silently dropping writes without evidence was deemed rude.
+  </p>
+  <table>
+    <caption>Table 2 — Calibration block registers. Fields marked <mark>provisional</mark> track the Rev. 7 draft status.</caption>
+    <thead>
+      <tr><th scope="col">Offset</th><th scope="col">Name</th><th scope="col">Access</th><th scope="col">Reset</th><th scope="col">Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>0x30</code></td><td><code>CAL_CTRL</code></td><td>RW</td><td><code>0x0000_0000</code></td><td>Start/abort, mode select (dark, flat-field, full)</td></tr>
+      <tr><td><code>0x34</code></td><td><code>CAL_STAT</code></td><td>RO</td><td><code>0x0000_0001</code></td><td>Progress, <code>WLOST</code>, convergence flags</td></tr>
+      <tr><td><code>0x38</code></td><td><code>DARK_REF</code></td><td>RW</td><td><code>0x0080_0000</code></td><td>Dark-frame target level, Q1.23</td></tr>
+      <tr><td rowspan="3"><code>0x40…0x48</code></td><td><code>CAL_COEF0</code></td><td>RW</td><td>lot-fused</td><td>PRNU gain, taps 0–1365, packed 3 × 10-bit</td></tr>
+      <tr><td><code>CAL_COEF1</code></td><td>RW</td><td>lot-fused</td><td>PRNU gain, taps 1366–2731</td></tr>
+      <tr><td><code>CAL_COEF2</code></td><td>RW</td><td>lot-fused</td><td>PRNU gain, taps 2732–4095 — <mark>provisional</mark></td></tr>
+      <tr><td><code>0x4C</code></td><td colspan="3">reserved — write as zero, reads undefined</td><td>Do not probe for easter eggs; the eggs were removed in rev. C1</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="calibration">
+  <h2>4. Field calibration procedure</h2>
+  <blockquote class="warn">
+    <p><strong>Thermal soak required.</strong> Calibrating a unit that has been
+    powered for less than 20 minutes bakes the warm-up drift into the PRNU table,
+    and the unit will then drift <em>away</em> from correct as it stabilises.
+    Support tickets caused by skipping this step are tagged <code>self-inflicted</code>.</p>
+  </blockquote>
+  <ol>
+    <li>Cap the optical aperture; confirm residual illumination &lt; 10 pW via <code>DBG_PHOTON</code>.</li>
+    <li>Hold <kbd>CAL</kbd> for three seconds, or write <code>CAL_CTRL.MODE = 0b01</code> (dark).</li>
+    <li>Wait for <code>CAL_STAT.DONE</code>; typical convergence is 340 frames.</li>
+    <li>Uncap, present the flat-field source at 0.5 <var>P</var><sub>sat</sub>, run <code>MODE = 0b10</code>.</li>
+    <li>Persist with <code>CAL_CTRL.COMMIT</code> — coefficients are otherwise volatile <del>and lost on reset</del> <ins>and lost on reset or link retrain</ins>.</li>
+  </ol>
+  <p>Pre-flight checklist (the framer refuses to leave test mode until the first three hold):</p>
+  <ul class="tasks">
+    <li><input type="checkbox" checked disabled> Dark calibration converged within 500 frames</li>
+    <li><input type="checkbox" checked disabled> Flat-field residual PRNU ≤ 0.4 % RMS</li>
+    <li><input type="checkbox" checked disabled> <code>CAL_STAT.WLOST</code> clear after commit</li>
+    <li><input type="checkbox" disabled> Optional: two-point thermal characterisation logged</li>
+  </ul>
+  <details>
+    <summary>Appendix A — reference acquisition profile (TOML)</summary>
+    <p>Ship this profile with field units; deviations belong in the unit's provenance record, not in the profile file.</p>
+    <pre><code># pl9-field-default.toml — checked against Rev. 7 timing (Table 1)
+[clock]
+mclk_hz        = 100_000_000
+osr            = 256            # f_tap ≈ 24.4 kHz
+
+[frame]
+integration_ms = 3.3
+discard_first  = 2              # settling frames, never telemetered
+
+[calibration]
+dark_target_q123 = 0x00800000
+commit           = true         # volatile coefficients are a support ticket factory</code></pre>
+  </details>
+</section>
+
+<section id="verification">
+  <h2>5. Verification results — engineering lot E-114</h2>
+  <p>
+    Spectral responsivity tracks the Rev. 5 optical model within 3 % across the
+    usable band (Fig. 3); the roll-off beyond 1,450 nm is the lattice coupling
+    limit, not a calibration artefact. Per-tap gain spread after calibration is
+    shown in Fig. 4 — three cells on this lot exceeded the ±1.5 % acceptance gate
+    and were fused out.
+  </p>
+  <figure>
+    <img width="640" height="320" alt="Line chart of measured spectral responsivity versus the optical model fit, peaking near 1,000 nanometres"
+         src="data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'640'%20height%3D'320'%20font-family%3D'system-ui%2Csans-serif'%3E%3Crect%20width%3D'640'%20height%3D'320'%20fill%3D'%23101623'%2F%3E%3Cg%20stroke%3D'%232a3550'%20stroke-width%3D'1'%3E%3Cline%20x1%3D'70'%20y1%3D'40'%20x2%3D'70'%20y2%3D'260'%2F%3E%3Cline%20x1%3D'70'%20y1%3D'260'%20x2%3D'600'%20y2%3D'260'%2F%3E%3Cline%20x1%3D'70'%20y1%3D'95'%20x2%3D'600'%20y2%3D'95'%20stroke-dasharray%3D'3%204'%2F%3E%3Cline%20x1%3D'70'%20y1%3D'150'%20x2%3D'600'%20y2%3D'150'%20stroke-dasharray%3D'3%204'%2F%3E%3Cline%20x1%3D'70'%20y1%3D'205'%20x2%3D'600'%20y2%3D'205'%20stroke-dasharray%3D'3%204'%2F%3E%3C%2Fg%3E%3Cpolyline%20points%3D'70%2C250%20130%2C240%20190%2C205%20250%2C150%20310%2C110%20370%2C88%20430%2C92%20490%2C130%20550%2C190%20600%2C235'%20fill%3D'none'%20stroke%3D'%235aa2ff'%20stroke-width%3D'3'%20stroke-linejoin%3D'round'%2F%3E%3Cpolyline%20points%3D'70%2C255%20130%2C246%20190%2C215%20250%2C162%20310%2C118%20370%2C95%20430%2C97%20490%2C138%20550%2C200%20600%2C244'%20fill%3D'none'%20stroke%3D'%23ffb454'%20stroke-width%3D'2'%20stroke-dasharray%3D'6%205'%2F%3E%3Cg%20fill%3D'%238fa3c8'%20font-size%3D'13'%3E%3Ctext%20x%3D'60'%20y%3D'265'%20text-anchor%3D'end'%3E0.0%3C%2Ftext%3E%3Ctext%20x%3D'60'%20y%3D'210'%20text-anchor%3D'end'%3E0.2%3C%2Ftext%3E%3Ctext%20x%3D'60'%20y%3D'155'%20text-anchor%3D'end'%3E0.4%3C%2Ftext%3E%3Ctext%20x%3D'60'%20y%3D'100'%20text-anchor%3D'end'%3E0.6%3C%2Ftext%3E%3Ctext%20x%3D'70'%20y%3D'285'%20text-anchor%3D'middle'%3E400%3C%2Ftext%3E%3Ctext%20x%3D'202'%20y%3D'285'%20text-anchor%3D'middle'%3E700%3C%2Ftext%3E%3Ctext%20x%3D'335'%20y%3D'285'%20text-anchor%3D'middle'%3E1000%3C%2Ftext%3E%3Ctext%20x%3D'468'%20y%3D'285'%20text-anchor%3D'middle'%3E1300%3C%2Ftext%3E%3Ctext%20x%3D'600'%20y%3D'285'%20text-anchor%3D'middle'%3E1600%3C%2Ftext%3E%3Ctext%20x%3D'335'%20y%3D'308'%20text-anchor%3D'middle'%3Ewavelength%20(nm)%3C%2Ftext%3E%3C%2Fg%3E%3Ctext%20x%3D'24'%20y%3D'150'%20fill%3D'%238fa3c8'%20font-size%3D'13'%20text-anchor%3D'middle'%20transform%3D'rotate(-90%2024%20150)'%3Eresponsivity%20(A%2FW)%3C%2Ftext%3E%3Cg%20font-size%3D'13'%3E%3Cline%20x1%3D'440'%20y1%3D'42'%20x2%3D'470'%20y2%3D'42'%20stroke%3D'%235aa2ff'%20stroke-width%3D'3'%2F%3E%3Ctext%20x%3D'476'%20y%3D'46'%20fill%3D'%23c9d4e8'%3Emeasured%3C%2Ftext%3E%3Cline%20x1%3D'440'%20y1%3D'62'%20x2%3D'470'%20y2%3D'62'%20stroke%3D'%23ffb454'%20stroke-width%3D'2'%20stroke-dasharray%3D'6%205'%2F%3E%3Ctext%20x%3D'476'%20y%3D'66'%20fill%3D'%23c9d4e8'%3Emodel%20fit%3C%2Ftext%3E%3C%2Fg%3E%3C%2Fsvg%3E">
+    <figcaption>Fig. 3 — Measured spectral responsivity vs. model fit, lot E-114 median unit.</figcaption>
+  </figure>
+  <figure>
+    <img width="640" height="360" alt="Pseudo-color map of per-tap relative gain across the lattice, with three outlier cells highlighted"
+         src="data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'640'%20height%3D'360'%20font-family%3D'system-ui%2Csans-serif'%3E%3Cdefs%3E%3ClinearGradient%20id%3D'bg'%20x1%3D'0'%20y1%3D'0'%20x2%3D'1'%20y2%3D'1'%3E%3Cstop%20offset%3D'0'%20stop-color%3D'%23182448'%2F%3E%3Cstop%20offset%3D'0.5'%20stop-color%3D'%233b2a66'%2F%3E%3Cstop%20offset%3D'1'%20stop-color%3D'%2314203d'%2F%3E%3C%2FlinearGradient%3E%3Cpattern%20id%3D'taps'%20width%3D'53'%20height%3D'51'%20patternUnits%3D'userSpaceOnUse'%3E%3Crect%20x%3D'3'%20y%3D'3'%20width%3D'47'%20height%3D'45'%20fill%3D'%238fb0ff'%20fill-opacity%3D'0.16'%20stroke%3D'%230b1020'%20stroke-width%3D'2'%2F%3E%3C%2Fpattern%3E%3C%2Fdefs%3E%3Crect%20x%3D'24'%20y%3D'22'%20width%3D'592'%20height%3D'306'%20fill%3D'url(%23bg)'%2F%3E%3Crect%20x%3D'24'%20y%3D'22'%20width%3D'592'%20height%3D'306'%20fill%3D'url(%23taps)'%2F%3E%3Crect%20x%3D'133'%20y%3D'124'%20width%3D'47'%20height%3D'45'%20fill%3D'%23ff9d5c'%20fill-opacity%3D'0.75'%2F%3E%3Crect%20x%3D'398'%20y%3D'226'%20width%3D'47'%20height%3D'45'%20fill%3D'%23ffd75c'%20fill-opacity%3D'0.7'%2F%3E%3Crect%20x%3D'292'%20y%3D'73'%20width%3D'47'%20height%3D'45'%20fill%3D'%235cffc4'%20fill-opacity%3D'0.55'%2F%3E%3Crect%20x%3D'24'%20y%3D'22'%20width%3D'592'%20height%3D'306'%20fill%3D'none'%20stroke%3D'%234a5b8c'%20stroke-width%3D'2'%2F%3E%3Ctext%20x%3D'320'%20y%3D'348'%20fill%3D'%238b9cc4'%20font-size%3D'12'%20text-anchor%3D'middle'%3EPL-9%20engineering%20lot%20E-114%20%E2%80%94%20pseudo-color%20relative%20gain%2C%20tap%20plane%200%20(marked%20cells%20exceed%20the%20%C2%B11.5%20%25%20gate)%3C%2Ftext%3E%3C%2Fsvg%3E">
+    <figcaption>Fig. 4 — Post-calibration gain map. Fused-out cells are interpolated
+    by the cal engine and flagged per-sample in the telemetry frame.</figcaption>
+  </figure>
+  <table>
+    <caption>Table 3 — Lot E-114 acceptance summary (12 units, field profile of Appendix A).</caption>
+    <thead>
+      <tr><th scope="col">Configuration</th><th scope="col" class="num">Frame rate (Hz)</th><th scope="col" class="num">SNR (dB)</th><th scope="col" class="num">Residual PRNU (% RMS)</th><th scope="col" class="num">Power (mW)</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Field default (OSR 256)</td><td class="num">297</td><td class="num">96.4</td><td class="num">0.31</td><td class="num">412</td></tr>
+      <tr><td>Low-noise (OSR 1024)</td><td class="num">74</td><td class="num">104.1</td><td class="num">0.22</td><td class="num">436</td></tr>
+      <tr><td>Burst (OSR 64, no cal)</td><td class="num">1,180</td><td class="num">82.7</td><td class="num">1.9</td><td class="num">398</td></tr>
+    </tbody>
+    <tfoot>
+      <tr><td colspan="5">Burst mode bypasses the cal engine; its PRNU column is reported for honesty, not for approval.</td></tr>
+    </tfoot>
+  </table>
+</section>
+
+<section id="terminology">
+  <h2>6. Terminology</h2>
+  <dl>
+    <dt>tap</dt>
+    <dd>One optical sampling site of the lattice; the PL-9 exposes 4,096, of which a lot-dependent handful are fused out and interpolated.</dd>
+    <dt>PRNU</dt>
+    <dd>Photo-response non-uniformity — the per-tap gain spread the calibration engine flattens. Quoted post-correction unless stated otherwise.</dd>
+    <dt>dark frame</dt>
+    <dd>A full lattice scan with the aperture capped; the reference for offset correction and the first thing support will ask for.</dd>
+    <dt>OSR</dt>
+    <dd>Oversampling ratio of the ΣΔ modulators. Doubles are free until the frame-rate budget says they are not.</dd>
+  </dl>
+</section>
+
+<section id="history">
+  <h2>Revision history</h2>
+  <ul>
+    <li><strong>Rev. 7 (this draft)</strong> — timing table re-measured on C2 silicon; <ins>added link-retrain volatility note in §4</ins>; <del>register <code>0x4C</code> scratch use</del> withdrawn.</li>
+    <li><strong>Rev. 6</strong> — calibration block moved to <code>0x30</code>; burst mode documented.</li>
+    <li><strong>Rev. 5</strong> — first revision with the in-line cal engine; optical model published.</li>
+  </ul>
+</section>
+
+<footer>
+  <hr>
+  <ol class="footnotes">
+    <li id="fn1">“Without host involvement” means the host may not <em>help</em>; it is still expected to stay awake and acknowledge frames.</li>
+    <li id="fn2">Procurement asked us to note that §4.3 of Rev. 6 is “fine”. The editors note that it is fine.</li>
+  </ol>
+</footer>
+
+</article>
 </body>
 </html>

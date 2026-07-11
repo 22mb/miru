@@ -6,16 +6,7 @@
 //   - useAltHoverPreview     : outline the would-be Alt-click target while Alt is held
 //   - useLiveReload          : SSE subscription, reload page or refetch comments
 //   - useKeyboardShortcuts   : j / k / r / Esc panel-wide bindings
-import {
-  type RefObject,
-  use,
-  useCallback,
-  useEffect,
-  useEffectEvent,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { use, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import type { Anchor, HydratedComment, HydratedReviewFile, SseEvent } from "@miru/contract";
 import { buildElementAnchor, buildTextAnchor, isStale, scrollToComment } from "./anchor.ts";
@@ -543,13 +534,16 @@ const PANEL_W_KEY = "miru:panel-width";
 const PANEL_W_DEFAULT = 380;
 // Arrow-key step for the keyboard-focused resizer.
 const PANEL_W_STEP = 16;
-// Lower bound chosen so the header row (open pill + resolved pill + Approve button) doesn't
-// clip Approve off the right edge at the min. Bumped from 320 once the resolved pill gained
-// a "resolved" label for symmetry with "open". Submit-review-while-staging can still squeeze
-// past this when drafts exist — flex-wrap on the header would be the fuller fix.
-const PANEL_W_MIN = 360;
+// Lower bound for usable comment cards. The header no longer constrains it: it wraps
+// (flex-wrap in panel.css), so the pills and the action buttons fold onto two rows
+// instead of clipping when the panel gets this narrow.
+const PANEL_W_MIN = 280;
 // Capped at 70vw so a misclick can't swallow the document area entirely.
 const PANEL_W_MAX_FRACTION = 0.7;
+// Dragging well past the minimum reads as "get rid of the panel" — snap it closed
+// instead of pinning at PANEL_W_MIN (the reopen chip brings it back). The threshold
+// sits 80px below the minimum so closing takes clear intent, not an overshoot wobble.
+const PANEL_COLLAPSE_AT = PANEL_W_MIN - 80;
 
 function clampPanelWidth(w: number): number {
   return Math.max(PANEL_W_MIN, Math.min(w, Math.floor(window.innerWidth * PANEL_W_MAX_FRACTION)));
@@ -573,60 +567,108 @@ if (Number.isFinite(savedPanelW) && savedPanelW > 0) {
   setPanelWidthVar(clampPanelWidth(savedPanelW));
 }
 
-export function usePanelResize(): RefObject<HTMLDivElement | null> {
-  const ref = useRef<HTMLDivElement | null>(null);
+// Hide/show for the whole panel (the header's collapse button / the floating reopen
+// chip). The document side reads the state from an attribute on <html> — miru.css
+// collapses body's reserved right padding on it — so toggling is a DOM write + React
+// state pair. Persisted to sessionStorage, not localStorage like the width: hiding is
+// a transient "read the document full-width" mode that must survive a round's frequent
+// live reloads, but a fresh review in a new tab should always start with the panel.
+const PANEL_HIDDEN_KEY = "miru:panel-hidden";
+function applyPanelHidden(hidden: boolean): void {
+  document.documentElement.toggleAttribute("data-miru-panel-hidden", hidden);
+}
+// Same module-scope restore reasoning as the width above: applying post-mount would
+// flash one paint of the wrong layout on every live reload.
+if (sessionStorage.getItem(PANEL_HIDDEN_KEY) === "1") applyPanelHidden(true);
 
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    // aria-value* is maintained here rather than in JSX because the width deliberately
-    // isn't React state — the separator announces whatever the CSS variable holds.
-    const apply = (w: number) => {
-      setPanelWidthVar(w);
-      el.setAttribute("aria-valuenow", String(w));
-    };
-    el.setAttribute("aria-valuemin", String(PANEL_W_MIN));
-    el.setAttribute("aria-valuemax", String(Math.floor(window.innerWidth * PANEL_W_MAX_FRACTION)));
-    el.setAttribute("aria-valuenow", String(Math.round(currentPanelWidth())));
-    const onDown = (e: PointerEvent) => {
-      e.preventDefault();
-      el.setPointerCapture(e.pointerId);
-      let width = clampPanelWidth(window.innerWidth - e.clientX);
-      const onMove = (ev: PointerEvent) => {
-        width = clampPanelWidth(window.innerWidth - ev.clientX);
-        apply(width);
-      };
-      const onUp = () => {
-        el.removeEventListener("pointermove", onMove);
-        el.removeEventListener("pointerup", onUp);
-        el.removeEventListener("pointercancel", onUp);
-        localStorage.setItem(PANEL_W_KEY, String(width));
-      };
-      el.addEventListener("pointermove", onMove);
-      el.addEventListener("pointerup", onUp);
-      el.addEventListener("pointercancel", onUp);
-    };
-    // Keyboard access for the focusable separator: ArrowLeft widens (the panel grows
-    // leftward from the window's right edge), ArrowRight narrows. Same clamp and
-    // persistence as the pointer path.
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-      e.preventDefault();
-      const w = clampPanelWidth(
-        currentPanelWidth() + (e.key === "ArrowLeft" ? PANEL_W_STEP : -PANEL_W_STEP),
-      );
-      apply(w);
-      localStorage.setItem(PANEL_W_KEY, String(w));
-    };
-    el.addEventListener("pointerdown", onDown);
-    el.addEventListener("keydown", onKey);
-    return () => {
-      el.removeEventListener("pointerdown", onDown);
-      el.removeEventListener("keydown", onKey);
-    };
+export function usePanelHidden(): [boolean, (hidden: boolean) => void] {
+  const [hidden, setHidden] = useState(() => sessionStorage.getItem(PANEL_HIDDEN_KEY) === "1");
+  const set = useCallback((h: boolean) => {
+    setHidden(h);
+    applyPanelHidden(h);
+    if (h) sessionStorage.setItem(PANEL_HIDDEN_KEY, "1");
+    else sessionStorage.removeItem(PANEL_HIDDEN_KEY);
   }, []);
+  return [hidden, set];
+}
 
-  return ref;
+export function usePanelResize(
+  onCollapse: () => void,
+): (el: HTMLDivElement | null) => (() => void) | undefined {
+  // A cleanup-returning ref callback (like popoverRef), NOT a mount-once effect: the
+  // resizer unmounts and remounts with the panel on every hide/reopen cycle, and an
+  // effect keyed to App's lifetime would wire up only the first element — after a
+  // reopen the fresh resizer would sit there dead. The ref callback re-wires on attach.
+  // `onCollapse` is a dep, so callers should memoise it or the listeners re-wire per
+  // render (harmless, but pointless churn).
+  return useCallback(
+    (el: HTMLDivElement | null) => {
+      if (!el) return undefined;
+      // aria-value* is maintained here rather than in JSX because the width deliberately
+      // isn't React state — the separator announces whatever the CSS variable holds.
+      const apply = (w: number) => {
+        setPanelWidthVar(w);
+        el.setAttribute("aria-valuenow", String(w));
+      };
+      el.setAttribute("aria-valuemin", String(PANEL_W_MIN));
+      el.setAttribute(
+        "aria-valuemax",
+        String(Math.floor(window.innerWidth * PANEL_W_MAX_FRACTION)),
+      );
+      el.setAttribute("aria-valuenow", String(Math.round(currentPanelWidth())));
+      const onDown = (e: PointerEvent) => {
+        e.preventDefault();
+        el.setPointerCapture(e.pointerId);
+        const startWidth = currentPanelWidth();
+        let width = clampPanelWidth(window.innerWidth - e.clientX);
+        const stop = () => {
+          el.removeEventListener("pointermove", onMove);
+          el.removeEventListener("pointerup", onUp);
+          el.removeEventListener("pointercancel", onUp);
+        };
+        const onMove = (ev: PointerEvent) => {
+          const raw = window.innerWidth - ev.clientX;
+          if (raw < PANEL_COLLAPSE_AT) {
+            // Snap closed. Rewind the width var to its pre-drag value (and skip the
+            // localStorage save) so reopening restores the panel as it was, not pinned
+            // at the minimum the drag passed through on its way out.
+            stop();
+            apply(clampPanelWidth(startWidth));
+            onCollapse();
+            return;
+          }
+          width = clampPanelWidth(raw);
+          apply(width);
+        };
+        const onUp = () => {
+          stop();
+          localStorage.setItem(PANEL_W_KEY, String(width));
+        };
+        el.addEventListener("pointermove", onMove);
+        el.addEventListener("pointerup", onUp);
+        el.addEventListener("pointercancel", onUp);
+      };
+      // Keyboard access for the focusable separator: ArrowLeft widens (the panel grows
+      // leftward from the window's right edge), ArrowRight narrows. Same clamp and
+      // persistence as the pointer path.
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+        e.preventDefault();
+        const w = clampPanelWidth(
+          currentPanelWidth() + (e.key === "ArrowLeft" ? PANEL_W_STEP : -PANEL_W_STEP),
+        );
+        apply(w);
+        localStorage.setItem(PANEL_W_KEY, String(w));
+      };
+      el.addEventListener("pointerdown", onDown);
+      el.addEventListener("keydown", onKey);
+      return () => {
+        el.removeEventListener("pointerdown", onDown);
+        el.removeEventListener("keydown", onKey);
+      };
+    },
+    [onCollapse],
+  );
 }
 
 // True when the event target is inside the miru panel (so the document-level

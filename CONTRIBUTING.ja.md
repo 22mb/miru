@@ -34,6 +34,23 @@ bun run build                           # 単一バイナリ ./miru をコンパ
 frontend のバンドルはビルド時に CLI へ埋め込まれます（`packages/frontend/dist` の text import）。
 そのため、frontend を変更したら、バイナリや `miru review` で確認する前に `build:front` を再実行してください。
 
+### フロントエンド開発ループ
+
+パネルはサーバーがレンダリングした文書に注入される構造のため、フロントエンドの開発は本物の
+レビューサーバー相手に行います — 次の 1 コマンドで両方をソースから直接起動できます。
+
+```sh
+bun run dev:front                     # examples/sample.html のスクラッチコピー → http://127.0.0.1:4400
+bun run dev:front path/to/doc.md      # 特定の文書をレビュー（サイドカーは通常どおり永続化）
+```
+
+`packages/cli/src/dev-server.ts` がパネルをインプロセスの `Bun.build` でバンドルし（dev 用
+define、インラインソースマップ）、`packages/frontend/src` 配下の変更のたびに再ビルドします。
+接続中のブラウザはサーバー自身の SSE チャンネル経由でリロードされます。`build:front` も
+埋め込みアセットも追加ツールも不要で、ページには本番と同じ CSP が付くため、dev でもバイナリと
+同じ挙動になります。フラグ（`--` の後に指定）: `--port N`（デフォルト 4400）、`--no-open`。
+最終確認は引き続き埋め込みバンドル（`build:front` + 再起動）で行ってください。
+
 ## PR を開く前に
 
 CI は PR ごとに次の 4 つのチェックを走らせます。

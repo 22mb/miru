@@ -6,6 +6,39 @@
 export const DOC = (): HTMLElement =>
   document.querySelector<HTMLElement>(".miru-doc") ?? document.body;
 
+/** The document's own scroll container, or null when the viewport scrolls. Template-
+ *  owned pages (Markdown / sanitized HTML) scroll inside main.miru-doc so the page
+ *  scrollbar sits at the document/panel boundary (see miru.css); raw documents keep
+ *  their own <body> and native viewport scrolling. */
+export function docScroller(): HTMLElement | null {
+  const doc = DOC();
+  return doc.matches("body > main.miru-doc") ? doc : null;
+}
+
+// Reading-position persistence for the container scroller. Browsers restore viewport
+// scroll across reloads on their own, but not an overflow container's — and live
+// reload fires on every source edit, so losing the position would make the review
+// loop unbearable. Saved on pagehide (covers live reload, F5, and navigation),
+// consumed single-shot on load. No-op for raw documents (null scroller).
+const DOC_SCROLL_KEY = "miru:doc-scroll";
+
+export function persistDocScroll(): void {
+  const scroller = docScroller();
+  if (!scroller) return;
+  const saved = sessionStorage.getItem(DOC_SCROLL_KEY);
+  if (saved !== null) {
+    sessionStorage.removeItem(DOC_SCROLL_KEY);
+    scroller.scrollTop = Number(saved) || 0;
+  }
+  window.addEventListener("pagehide", () => {
+    try {
+      sessionStorage.setItem(DOC_SCROLL_KEY, String(scroller.scrollTop));
+    } catch {
+      /* private-browsing / quota — position restore is nice-to-have */
+    }
+  });
+}
+
 export function walkText(root: Node): Text[] {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   const out: Text[] = [];

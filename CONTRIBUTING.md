@@ -37,6 +37,23 @@ The frontend bundle is embedded into the CLI at build time (text imports of
 `packages/frontend/dist`), so rebuild it (`build:front`) after frontend changes before testing
 the binary or `miru review`.
 
+### Frontend dev loop
+
+The panel is injected into a server-rendered document, so frontend work runs against a real
+review server — one command runs both, straight from source:
+
+```sh
+bun run dev:front                     # scratch copy of examples/sample.html → http://127.0.0.1:4400
+bun run dev:front path/to/doc.md      # review a specific document (its sidecar persists as usual)
+```
+
+`packages/cli/src/dev-server.ts` bundles the panel in-process with `Bun.build` (dev define,
+inline sourcemaps) and rebuilds on every change under `packages/frontend/src`; connected
+browsers reload over the server's own SSE channel. No `build:front`, no embedded assets, no
+extra tooling — and the page ships with the production CSP, so dev behaves like the binary.
+Flags (after `--`): `--port N` (default 4400), `--no-open`. Final verification still goes
+through the embedded bundle (`build:front` + restart).
+
 ## Before you open a PR
 
 CI runs these four checks on every PR — run them locally first:

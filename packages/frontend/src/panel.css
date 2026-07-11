@@ -30,6 +30,11 @@
     --miru-dur-fast: 140ms;
     --miru-dur: 220ms;
     interpolate-size: allow-keywords;
+    /* Follow the OS scheme for everything the UA still paints itself (caret, text
+       selection, scrollbars, form-control internals). The reviewed document controls
+       the page's color-scheme, not ours — without this, a scheme-less document leaves
+       the panel's controls rendering as light UA chrome inside the dark theme. */
+    color-scheme: light dark;
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -117,6 +122,9 @@
   }
   .miru-panel__head {
     display: flex;
+    /* Wrap instead of clip: at narrow widths (PANEL_W_MIN in hooks.ts) the count
+       pills keep the first row and the action buttons fold onto a second one. */
+    flex-wrap: wrap;
     align-items: center;
     gap: 8px;
     padding: 12px 16px;
@@ -135,6 +143,84 @@
     display: flex;
     align-items: center;
     gap: 8px;
+  }
+  /* Icon-only ghost button that hides the panel (the floating .miru-reopen chip brings
+     it back). Muted so it doesn't compete with Approve sitting right next to it. */
+  .miru-panel-hide {
+    display: inline-flex;
+    align-items: center;
+    background: none;
+    border: 0;
+    border-radius: 6px;
+    padding: 5px;
+    color: var(--miru-muted);
+    cursor: pointer;
+    transition:
+      background-color var(--miru-dur-fast) var(--miru-ease),
+      color var(--miru-dur-fast) var(--miru-ease);
+
+    &:hover {
+      background: var(--miru-hover-bg);
+      color: var(--miru-fg);
+    }
+  }
+  /* Floating chip that reopens a hidden panel, pinned to the panel's home corner so
+     hiding reads as the panel collapsing into it. Top-layer popover like the panel
+     itself — document CSS must never be able to bury the only way back in. */
+  .miru-reopen {
+    position: fixed;
+    inset: auto;
+    top: 12px;
+    right: 12px;
+    margin: 0;
+    overflow: visible;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--miru-bg);
+    color: var(--miru-fg);
+    border: 1px solid var(--miru-border);
+    border-radius: 999px;
+    padding: 5px 6px 5px 10px;
+    font-family: -apple-system, system-ui, sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1;
+    cursor: pointer;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+    transition: background-color var(--miru-dur-fast) var(--miru-ease);
+
+    &:hover {
+      background: var(--miru-hover-bg);
+    }
+  }
+  .miru-reopen__icon {
+    color: var(--miru-muted);
+  }
+  .miru-reopen__n {
+    min-width: 18px;
+    text-align: center;
+    background: var(--miru-accent);
+    color: var(--miru-on-accent);
+    border-radius: 999px;
+    padding: 2px 7px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .miru-reopen[data-empty] .miru-reopen__n {
+    background: var(--miru-code-bg);
+    color: var(--miru-muted);
+    border: 1px solid var(--miru-border);
+    padding: 1px 6px;
+  }
+  /* An agent reply awaits the human — tint the way back in with the "your turn" tone. */
+  .miru-reopen[data-attention] {
+    border-color: var(--miru-success);
+
+    & .miru-reopen__n {
+      background: var(--miru-success);
+      color: var(--miru-on-accent);
+    }
   }
   .miru-panel__list {
     flex: 1;
@@ -476,6 +562,11 @@
       min-height: 44px;
       resize: vertical;
       field-sizing: content;
+      /* Explicit, not UA defaults: shadow-root isolation means nothing else will
+         theme these — UA-default controls read as white patches in dark mode. Same
+         for every button/textarea below. */
+      background: var(--miru-bg);
+      color: var(--miru-fg);
     }
   }
   .miru-reply-form__actions {
@@ -491,6 +582,7 @@
       font-size: 12px;
       cursor: pointer;
       background: var(--miru-bg);
+      color: var(--miru-fg);
     }
   }
 
@@ -536,6 +628,8 @@
       font-size: 13px;
       resize: vertical;
       field-sizing: content;
+      background: var(--miru-bg);
+      color: var(--miru-fg);
     }
   }
   .miru-draft__type {
@@ -563,6 +657,7 @@
       font-size: 13px;
       cursor: pointer;
       background: var(--miru-bg);
+      color: var(--miru-fg);
       /* The long ⌘⇧⏎ glyphs are wide enough to fold the label onto a second line
          otherwise. */
       white-space: nowrap;
@@ -756,8 +851,10 @@
   }
 
   /* Keyboard focus styles. Explicit rather than UA-default so they render identically
-     regardless of platform conventions. */
-  :is(.miru-panel, .miru-draft) :is(button, textarea, [tabindex]):focus-visible {
+     regardless of platform conventions. .miru-reopen lives outside the panel, so it's
+     listed on its own. */
+  :is(.miru-panel, .miru-draft) :is(button, textarea, [tabindex]):focus-visible,
+  .miru-reopen:focus-visible {
     outline: 2px solid var(--miru-focus);
     outline-offset: 2px;
   }
