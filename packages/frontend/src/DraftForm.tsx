@@ -1,29 +1,12 @@
 // Floating draft form rendered next to a fresh selection or Alt+clicked element.
 // Pure presentation — App owns the draft state and the submit handler.
-import { type KeyboardEvent, useActionState, useRef, useState } from "react";
+import { useActionState, useRef, useState } from "react";
 import type { Anchor } from "@miru/contract";
 import { popoverRef } from "./hooks.ts";
+import { MOD_LABEL, submitOnModEnter } from "./keys.ts";
 
-// Cmd/Ctrl+Enter clicks the primary (Comment) submit; Cmd/Ctrl+Shift+Enter clicks the
-// "Add to review" draft submitter. Each button's disabled state still gates the click,
-// so an empty/pending form is a no-op.
-function submitOnModEnter(
-  e: KeyboardEvent<HTMLTextAreaElement>,
-  commentBtn: HTMLButtonElement | null,
-  draftBtn: HTMLButtonElement | null,
-) {
-  if (e.key !== "Enter" || !(e.metaKey || e.ctrlKey)) return;
-  e.preventDefault();
-  (e.shiftKey ? draftBtn : commentBtn)?.click();
-}
-
-// Mac-style ⌘ vs Windows/Linux Ctrl in the button hint labels, picked from the platform
-// at module load. matches the same metaKey/ctrlKey OR in submitOnModEnter — both still
-// fire either way; this is only the label the user sees.
-const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
-const MOD = IS_MAC ? "⌘" : "Ctrl";
-const COMMENT_KEY_LABEL = `${MOD} ⏎`;
-const DRAFT_KEY_LABEL = `${MOD} ⇧ ⏎`;
+const SEND_KEY_LABEL = `${MOD_LABEL} ⏎`;
+const DRAFT_KEY_LABEL = `${MOD_LABEL} ⇧ ⏎`;
 
 // A pending comment being authored, positioned next to its selection/element.
 export interface Draft {
@@ -42,19 +25,30 @@ export function DraftForm(props: {
 }) {
   const [body, setBody] = useState("");
   const [sug, setSug] = useState("");
+  // The suggestion section is collapsed by default — most comments are pure prose, so
+  // hiding the field until asked keeps the form calm and steers the user toward the
+  // primary "just leave a comment" flow. Element anchors don't get the toggle at all
+  // (see below): replacement text against a whole element block is ambiguous.
+  const [sugOpen, setSugOpen] = useState(false);
+  const { anchor } = props.draft;
+  // Suggestion is only submitted when the section is actually open — closing the toggle
+  // discards it from the submission without wiping the state, so a re-open restores what
+  // the user was writing. hasContent also reads from `effectiveSug` so a closed section
+  // never unlocks the submit buttons on stale text.
+  const effectiveSug = sugOpen ? sug : "";
   // Either field counts: a suggestion-only comment (replacement text without prose)
   // is a valid review interaction.
-  const hasContent = !!(body.trim() || sug.trim());
-  const commentRef = useRef<HTMLButtonElement>(null);
+  const hasContent = !!(body.trim() || effectiveSug.trim());
+  const sendRef = useRef<HTMLButtonElement>(null);
   const draftRef = useRef<HTMLButtonElement>(null);
 
-  // The form is submitted by one of two submitter buttons — Comment (sends now) or
-  // Add to review (stages it). React's form action collects the submitter's name/value
+  // The form is submitted by one of two submitter buttons — Send (posts now) or
+  // Save draft (stages it). React's form action collects the submitter's name/value
   // into FormData, so the action sees which button fired. Disabling on `pending` lets
   // the parent's async submit finish before a second click can fire.
   const [, submitAction, pending] = useActionState<null, FormData>(async (_prev, fd) => {
     if (!hasContent) return null;
-    await props.onSubmit(body, sug, fd.get("intent") === "draft");
+    await props.onSubmit(body, effectiveSug, fd.get("intent") === "draft");
     return null;
   }, null);
 
@@ -79,7 +73,7 @@ export function DraftForm(props: {
       }}
     >
       <div id="miru-draft-title" className="miru-draft__type">
-        Comment on {props.draft.anchor.type === "text" ? "text" : "element"}
+        Comment on {anchor.type === "text" ? "text" : "element"}
       </div>
       <textarea
         className="miru-draft__body"
@@ -87,16 +81,38 @@ export function DraftForm(props: {
         placeholder="Comment (markdown)"
         aria-label="Comment (markdown)"
         onChange={(e) => setBody(e.target.value)}
-        onKeyDown={(e) => submitOnModEnter(e, commentRef.current, draftRef.current)}
+        onKeyDown={(e) => submitOnModEnter(e, sendRef.current, draftRef.current)}
       />
-      <textarea
-        className="miru-draft__sug"
-        value={sug}
-        placeholder="Suggestion (optional: replacement text)"
-        aria-label="Suggestion (optional: replacement text)"
-        onChange={(e) => setSug(e.target.value)}
-        onKeyDown={(e) => submitOnModEnter(e, commentRef.current, draftRef.current)}
-      />
+      {/* Suggestion is a text-anchor concept: replacing the quoted range with new text.
+          Element anchors (Alt+click on a whole <pre> / <img> / <table>) have no natural
+          "before" text to replace, so the toggle isn't shown for them. */}
+      {anchor.type === "text" &&
+        (sugOpen ? (
+          <div className="miru-draft__sug-section">
+            <div className="miru-draft__sug-label">Before (selected)</div>
+            <pre className="miru-draft__sug-before">{anchor.quote}</pre>
+            <div className="miru-draft__sug-label">After</div>
+            <textarea
+              className="miru-draft__sug"
+              value={sug}
+              placeholder="Replacement text"
+              aria-label="Suggested replacement (markdown)"
+              onChange={(e) => setSug(e.target.value)}
+              onKeyDown={(e) => submitOnModEnter(e, sendRef.current, draftRef.current)}
+            />
+            <button
+              type="button"
+              className="miru-draft__sug-toggle"
+              onClick={() => setSugOpen(false)}
+            >
+              − remove suggestion
+            </button>
+          </div>
+        ) : (
+          <button type="button" className="miru-draft__sug-toggle" onClick={() => setSugOpen(true)}>
+            + suggest a fix
+          </button>
+        ))}
       <div className="miru-draft__actions">
         <button type="button" onClick={props.onCancel}>
           Cancel{" "}
@@ -111,22 +127,22 @@ export function DraftForm(props: {
           value="draft"
           disabled={!hasContent || pending}
         >
-          Add to review{" "}
+          Save draft{" "}
           <kbd className="miru-btn-kbd" aria-hidden="true">
             {DRAFT_KEY_LABEL}
           </kbd>
         </button>
         <button
-          ref={commentRef}
+          ref={sendRef}
           type="submit"
           name="intent"
           value="comment"
           className="miru-primary"
           disabled={!hasContent || pending}
         >
-          Comment{" "}
+          Send{" "}
           <kbd className="miru-btn-kbd" aria-hidden="true">
-            {COMMENT_KEY_LABEL}
+            {SEND_KEY_LABEL}
           </kbd>
         </button>
       </div>

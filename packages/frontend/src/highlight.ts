@@ -50,53 +50,46 @@ export function applyHighlights(comments: Comment[], activeId: string | null): v
   }
 }
 
+// Paint (or clear) a named single-anchor highlight: text ranges go through the Custom
+// Highlight API, element anchors get a marker class. Shared by the draft form's
+// "target while composing" state and the card-hover preview — the two differ only in
+// the CSS name/class, and keeping the shape single-sourced means a future style tweak
+// (or a third anchor state) doesn't drift between siblings.
+function applyAnchorHighlight(
+  anchor: Anchor | null,
+  { highlight, klass }: { highlight: string; klass: string },
+): void {
+  const root = DOC();
+  root.querySelectorAll(`.${klass}`).forEach((e) => e.classList.remove(klass));
+  const ranges: Range[] = [];
+  if (anchor) {
+    if (anchor.type === "text") {
+      const idx = buildTextIndex(root);
+      const off = findTextOffsets(anchor, idx.text);
+      const r = off && rangeFromIndex(idx, off.start, off.end);
+      if (r) ranges.push(r);
+    } else {
+      const el = resolveElement(anchor);
+      if (el) el.classList.add(klass);
+    }
+  }
+  if (typeof Highlight !== "undefined" && CSS.highlights) {
+    CSS.highlights.set(highlight, new Highlight(...ranges));
+  }
+}
+
 // Persist a visible "selected" state on the draft's target while the form is open.
 // Native text selection collapses as soon as focus moves to the textarea, so we
 // re-paint the range through the Custom Highlight API; element anchors get a
 // distinct class. Pass null to clear.
 export function applyDraftHighlight(anchor: Anchor | null): void {
-  const root = DOC();
-  root.querySelectorAll(".miru-el-draft").forEach((e) => e.classList.remove("miru-el-draft"));
-  const ranges: Range[] = [];
-  if (anchor) {
-    if (anchor.type === "text") {
-      const idx = buildTextIndex(root);
-      const off = findTextOffsets(anchor, idx.text);
-      const r = off && rangeFromIndex(idx, off.start, off.end);
-      if (r) ranges.push(r);
-    } else {
-      const el = resolveElement(anchor);
-      if (el) el.classList.add("miru-el-draft");
-    }
-  }
-  if (typeof Highlight !== "undefined" && CSS.highlights) {
-    CSS.highlights.set("miru-draft", new Highlight(...ranges));
-  }
+  applyAnchorHighlight(anchor, { highlight: "miru-draft", klass: "miru-el-draft" });
 }
 
 // Transient highlight painted on the anchor of the card the user is hovering over in
-// the panel. Same shape as applyDraftHighlight — Custom Highlight for text ranges,
-// distinct class for elements. The visual is intentionally distinct from the draft
-// highlight (which is more committed) and from the Alt-hover .miru-el-preview (which
-// targets a not-yet-anchored element). Pass null to clear.
+// the panel. The visual is intentionally distinct from the draft highlight (which is
+// more committed) and from the Alt-hover .miru-el-preview (which targets a
+// not-yet-anchored element). Pass null to clear.
 export function applyPreviewHighlight(anchor: Anchor | null): void {
-  const root = DOC();
-  root
-    .querySelectorAll(".miru-el-card-preview")
-    .forEach((e) => e.classList.remove("miru-el-card-preview"));
-  const ranges: Range[] = [];
-  if (anchor) {
-    if (anchor.type === "text") {
-      const idx = buildTextIndex(root);
-      const off = findTextOffsets(anchor, idx.text);
-      const r = off && rangeFromIndex(idx, off.start, off.end);
-      if (r) ranges.push(r);
-    } else {
-      const el = resolveElement(anchor);
-      if (el) el.classList.add("miru-el-card-preview");
-    }
-  }
-  if (typeof Highlight !== "undefined" && CSS.highlights) {
-    CSS.highlights.set("miru-preview", new Highlight(...ranges));
-  }
+  applyAnchorHighlight(anchor, { highlight: "miru-preview", klass: "miru-el-card-preview" });
 }
