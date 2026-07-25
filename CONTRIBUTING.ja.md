@@ -60,7 +60,7 @@ CI は PR ごとに次の 4 つのチェックを走らせます。
 bun run typecheck      # tsc -b
 bun run lint           # oxlint
 bun run fmt:check      # oxfmt --check（pre-commit hook が stage 済みファイルを整形します）
-bun test
+bun run test           # bun run --filter '*' test（パッケージごとに別プロセス。frontend の happy-dom を server テストに漏らさないため）
 ```
 
 PR は単一の関心事に絞り、CI を green にしてください。

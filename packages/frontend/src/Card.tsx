@@ -1,25 +1,10 @@
 // Single comment card with reply / resolve / delete actions. Pure presentation —
 // App owns the comment state and passes handlers down.
-import {
-  type KeyboardEvent,
-  type ReactNode,
-  useActionState,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { type ReactNode, useActionState, useEffect, useRef, useState } from "react";
 import type { Author, HydratedComment } from "@miru/contract";
+import { submitOnModEnter } from "./keys.ts";
 
 const AUTHOR_LABEL: Record<Author, string> = { human: "You", agent: "Agent" };
-
-// Cmd/Ctrl+Enter on a textarea submits via its form's primary button. The button's
-// disabled state still gates the click, so an empty/pending form is a no-op.
-function submitOnModEnter(e: KeyboardEvent<HTMLTextAreaElement>, btn: HTMLButtonElement | null) {
-  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-    e.preventDefault();
-    btn?.click();
-  }
-}
 
 // A card action button that stops the click from also activating the card.
 function ActionButton(props: { onClick: () => void; children: ReactNode; ariaPressed?: boolean }) {

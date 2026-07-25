@@ -28,7 +28,7 @@ Start the review server in the background and keep it running for the whole sess
 miru review <file.md|.html>
 ```
 
-A browser opens. The human comments by selecting text or `Alt`+clicking an element, then either sends each comment immediately ("Comment") or stages several and clicks "Submit review". Editing the source file live re-renders the open browser, so the human sees your fixes as they land.
+A browser opens. The human comments by selecting text or `Alt`+clicking an element, then either sends each comment immediately ("Send") or stages several with "Save draft" and clicks "Submit review". Editing the source file live re-renders the open browser, so the human sees your fixes as they land.
 
 Do not call `miru review` more than once for the same file — re-running it will fail to bind the port.
 

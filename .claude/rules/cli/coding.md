@@ -14,4 +14,4 @@ Runtime is **Bun**, no DOM — same conventions as the server package: explicit 
 - Spawn external programs with `Bun.spawn`'s array form (no shell) — see `openBrowser`.
 - User errors: `console.error("miru: ...")` + non-zero exit, matching the existing messages.
 
-Tests: `bun test`, colocated `*.test.ts` (run by the `test:server` script); style per the server testing rule.
+Tests: `bun test`, colocated `*.test.ts`; style per the server testing rule. This package has none yet — the first one also needs a `"test": "bun test"` script in `packages/cli/package.json`, or the root `bun run test` fan-out will skip it.

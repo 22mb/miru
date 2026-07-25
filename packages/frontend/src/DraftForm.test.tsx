@@ -12,9 +12,23 @@ const draft: Draft = {
   top: 0,
   left: 0,
 };
+const elementDraft: Draft = {
+  anchor: {
+    type: "element",
+    selector: "pre",
+    tagChain: ["pre"],
+    role: null,
+    accessibleName: null,
+    landmark: null,
+    textHint: null,
+    index: 0,
+  },
+  top: 0,
+  left: 0,
+};
 
 describe("DraftForm", () => {
-  test("'Comment' submits immediately (draft = false)", async () => {
+  test("'Send' submits immediately (draft = false)", async () => {
     const user = userEvent.setup();
     const calls: Array<[string, string, boolean]> = [];
     const { getByRole } = render(
@@ -27,11 +41,11 @@ describe("DraftForm", () => {
       />,
     );
     await user.type(getByRole("textbox", { name: "Comment (markdown)" }), "now");
-    await user.click(getByRole("button", { name: "Comment" }));
+    await user.click(getByRole("button", { name: "Send" }));
     expect(calls).toEqual([["now", "", false]]);
   });
 
-  test("'Add to review' stages it (draft = true)", async () => {
+  test("'Save draft' stages it (draft = true)", async () => {
     const user = userEvent.setup();
     const calls: Array<[string, string, boolean]> = [];
     const { getByRole } = render(
@@ -44,19 +58,19 @@ describe("DraftForm", () => {
       />,
     );
     await user.type(getByRole("textbox", { name: "Comment (markdown)" }), "later");
-    await user.click(getByRole("button", { name: "Add to review" }));
+    await user.click(getByRole("button", { name: "Save draft" }));
     expect(calls).toEqual([["later", "", true]]);
   });
 
   test("submit buttons stay disabled until either the body or the suggestion has non-whitespace text", async () => {
     const user = userEvent.setup();
     const { getByRole } = render(<DraftForm draft={draft} onCancel={noop} onSubmit={noop} />);
-    const comment = getByRole("button", { name: "Comment" }) as HTMLButtonElement;
-    const stage = getByRole("button", { name: "Add to review" }) as HTMLButtonElement;
-    expect(comment.disabled).toBe(true);
+    const send = getByRole("button", { name: "Send" }) as HTMLButtonElement;
+    const stage = getByRole("button", { name: "Save draft" }) as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
     expect(stage.disabled).toBe(true);
     await user.type(getByRole("textbox", { name: "Comment (markdown)" }), "ok");
-    expect(comment.disabled).toBe(false);
+    expect(send.disabled).toBe(false);
     expect(stage.disabled).toBe(false);
   });
 
@@ -72,15 +86,49 @@ describe("DraftForm", () => {
         }}
       />,
     );
-    const comment = getByRole("button", { name: "Comment" }) as HTMLButtonElement;
-    expect(comment.disabled).toBe(true);
-    await user.type(
-      getByRole("textbox", { name: "Suggestion (optional: replacement text)" }),
-      "replaced",
-    );
-    expect(comment.disabled).toBe(false);
-    await user.click(comment);
+    const send = getByRole("button", { name: "Send" }) as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
+    // Suggestion is collapsed by default — open it first, then type.
+    await user.click(getByRole("button", { name: "+ suggest a fix" }));
+    await user.type(getByRole("textbox", { name: "Suggested replacement (markdown)" }), "replaced");
+    expect(send.disabled).toBe(false);
+    await user.click(send);
     expect(calls).toEqual([["", "replaced", false]]);
+  });
+
+  test("closing the suggestion toggle discards it from the submission (state is retained on reopen)", async () => {
+    const user = userEvent.setup();
+    const calls: Array<[string, string, boolean]> = [];
+    const { getByRole, queryByRole } = render(
+      <DraftForm
+        draft={draft}
+        onCancel={noop}
+        onSubmit={(b, s, d) => {
+          calls.push([b, s, d]);
+        }}
+      />,
+    );
+    await user.type(getByRole("textbox", { name: "Comment (markdown)" }), "note");
+    await user.click(getByRole("button", { name: "+ suggest a fix" }));
+    await user.type(getByRole("textbox", { name: "Suggested replacement (markdown)" }), "replaced");
+    // Collapse — suggestion should drop out of the submission.
+    await user.click(getByRole("button", { name: "− remove suggestion" }));
+    expect(queryByRole("textbox", { name: "Suggested replacement (markdown)" })).toBeNull();
+    await user.click(getByRole("button", { name: "Send" }));
+    expect(calls).toEqual([["note", "", false]]);
+    // Reopen — the text is still there for a rethink, not silently wiped.
+    await user.click(getByRole("button", { name: "+ suggest a fix" }));
+    expect(
+      (getByRole("textbox", { name: "Suggested replacement (markdown)" }) as HTMLTextAreaElement)
+        .value,
+    ).toBe("replaced");
+  });
+
+  test("element anchors don't get the suggestion toggle (no natural 'before' text)", () => {
+    const { queryByRole } = render(
+      <DraftForm draft={elementDraft} onCancel={noop} onSubmit={noop} />,
+    );
+    expect(queryByRole("button", { name: "+ suggest a fix" })).toBeNull();
   });
 
   test("Cancel fires onCancel", async () => {
@@ -150,7 +198,7 @@ describe("DraftForm", () => {
     expect(calls).toEqual([["stage it", "", true]]);
   });
 
-  test("Cmd/Ctrl+Enter in the body submits as Comment (draft = false)", async () => {
+  test("Cmd/Ctrl+Enter in the body submits as Send (draft = false)", async () => {
     const user = userEvent.setup();
     const calls: Array<[string, string, boolean]> = [];
     const { getByRole } = render(

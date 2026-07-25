@@ -60,7 +60,7 @@ export const Reply = z.object({
   // Default keeps older sidecar files (written before `author` existed) parsing — they
   // were all human replies at the time, since the agent never wrote replies back then.
   author: Author.default("human"),
-  // True while a human reply has been staged ("Add to review") but not yet sent. The
+  // True while a human reply has been staged ("Save draft") but not yet sent. The
   // agent doesn't see draft replies in `miru next`. Promoted (set false) by
   // /api/review/submit; the parent comment's status also flips to "sent" then.
   // Default keeps pre-existing sidecars parsing.
@@ -119,7 +119,7 @@ export const CreateCommentBody = z.object({
   anchor: Anchor,
   body: z.string().max(PROSE_MAX),
   suggestion: Suggestion.nullish(),
-  // true → stage in the current review ("Add to review"); false → send now ("Comment").
+  // true → stage in the current review ("Save draft"); false → send now ("Send").
   draft: z.boolean().default(false),
 });
 export type CreateCommentBody = z.infer<typeof CreateCommentBody>;
@@ -138,7 +138,7 @@ export function awaitingAgent(c: Comment): boolean {
 // The agent-facing projection of a review — the external JSON contract emitted by
 // `miru comments --json`, `miru next`, and the final `miru review` output. Centralized
 // here so those three call sites cannot drift (they used to hand-build it three ways).
-// The one rule: staged ("Add to review") replies stay hidden until submitted → draft
+// The one rule: staged ("Save draft") replies stay hidden until submitted → draft
 // replies stripped. Since the persisted shape has no bodyHtml (F-1), there's nothing
 // else to hide.
 export type AgentReply = Reply;

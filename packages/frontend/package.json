@@ -2,6 +2,9 @@
   "name": "@miru/frontend",
   "private": true,
   "type": "module",
+  "scripts": {
+    "test": "bun test"
+  },
   "dependencies": {
     "@miru/contract": "workspace:*",
     "react": "^19.2.7",

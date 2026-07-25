@@ -29,12 +29,10 @@
     --miru-success-bg: #eafaef;
     --miru-hover-bg: #f3f4f6;
     --miru-code-bg: #f6f8fa;
-    /* Motion tokens. interpolate-size lets height: 0 ↔ auto transition; calc-size() etc.
-       also benefit. Gated globally by prefers-reduced-motion below. */
+    /* Motion tokens. Gated globally by prefers-reduced-motion below. */
     --miru-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
     --miru-dur-fast: 140ms;
     --miru-dur: 220ms;
-    interpolate-size: allow-keywords;
   }
 
   /* Honour the user's OS-level motion preference. Disables every transition/animation
@@ -135,6 +133,20 @@
     margin-right: 0;
   }
 
+  /* Narrow viewport: the panel goes fullwidth as a drawer (see the mirroring rule in
+     panel.css). Reserving a slice of the doc for it makes no sense at that size — the
+     doc would be squeezed to a single-word column while the panel covers most of the
+     screen — so drop the reservation and let the panel overlay when open. Users hide
+     it via the panel-hide button to see the doc. */
+  @media (max-width: 720px) {
+    body {
+      padding-right: 0;
+    }
+    body > main.miru-doc {
+      margin-right: 0;
+    }
+  }
+
   /* Markdown only: miru owns the page theme because the doc ships none. An HTML doc
      keeps the UA default (white even in dark OS mode) — "what a normal browser tab
      shows" is the fidelity target there. color-scheme also gets form controls /
@@ -202,7 +214,7 @@
      Cleared in JS after CHANGED_FLASH_MS; no CSS animation because ::highlight only
      supports color / background / text-decoration / text-shadow. */
   ::highlight(miru-changed) {
-    background: color-mix(in srgb, var(--miru-stale) 45%, transparent);
+    background: color-mix(in oklch, var(--miru-stale) 45%, transparent);
   }
 }
 

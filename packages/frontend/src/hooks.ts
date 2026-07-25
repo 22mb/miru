@@ -20,10 +20,11 @@ import { applyDraftHighlight } from "./highlight.ts";
 // table-level only fires when the click misses every cell, e.g. caption or border).
 const ALT_CLICK_TARGETS = "img, pre, td, th, table, figure, blockquote, li, p, h1, h2, h3, h4";
 
-// Draft form width — keep in sync with `.miru-draft` in miru.css. Used here for the
+// Draft form width — keep in sync with `.miru-draft` in panel.css. Used here for the
 // viewport-clamp in useDraftCapture (kept out of DraftForm to keep that component pure
-// presentation).
-const DRAFT_WIDTH = 440;
+// presentation). Narrower than an eyeballed 440 so a below-placement covers fewer of
+// the following paragraphs and a side-placement fits in more selections' right margin.
+const DRAFT_WIDTH = 360;
 
 // Wrap a state mutation with the View Transitions API so card add/remove/reorder morph
 // instead of snap. flushSync is required: VT needs the DOM committed synchronously
@@ -286,32 +287,53 @@ export function useDraftCapture(): {
   // Plain closures throughout — useDocumentEvent wraps its handler in an effect event
   // internally, so the listeners read the latest state without re-subscribing.
   const openDraft = (anchor: Anchor, rect: DOMRect) => {
-    // Position the draft just below the selection/element, in VIEWPORT coordinates —
-    // the form lives in the browser's top layer (popover="manual"), so its containing
-    // block is the viewport and `top`/`left` are viewport-relative. Adding scrollY here
-    // would push the form down by the scroll offset (it would appear below the fold on
-    // a scrolled page).
+    // Position the draft next to the selection/element in VIEWPORT coordinates — the
+    // form lives in the browser's top layer (popover="manual"), so its containing block
+    // is the viewport and `top`/`left` are viewport-relative. Adding scrollY here would
+    // push the form down by the scroll offset (it would appear below the fold on a
+    // scrolled page).
     //
-    // Clamp so the form stays fully on-screen:
-    //   - left: subtract --miru-panel-w from the right bound so the form doesn't slip
-    //     under the panel when the selection is right-aligned.
-    //   - top: prefer placing below the anchor; if that would overflow the viewport
-    //     bottom and there's room above, flip above. Form-height is an estimate (the
-    //     element hasn't rendered yet) — covers the default empty state. Heavy growth
-    //     from `field-sizing: content` would still overflow, accepted as a niche.
+    // Placement preference, most-natural-reading-flow first:
+    //   1. To the RIGHT of the anchor (empty margin between the doc's text column and
+    //      the panel — typical for narrow prose columns). Keeps the paragraph below
+    //      the selection readable, which is often the context the reviewer wants.
+    //   2. To the LEFT of the anchor (mirror case: the selection sits on the right
+    //      side of the doc column with room on the left).
+    //   3. Below the anchor (fallback: full-width selections, wide code blocks).
+    //   4. Above the anchor (fallback when below overflows the viewport bottom).
+    //
+    // Form-height is an estimate — the element hasn't rendered yet — that covers the
+    // default empty state. Heavy growth from `field-sizing: content` would still
+    // overflow the viewport; accepted as a niche.
     const panelW = currentPanelWidth();
     const margin = 16;
+    const gap = 8;
     const formHEst = 280;
     const docMaxX = window.innerWidth - panelW;
-    const left = Math.max(margin, Math.min(rect.left, docMaxX - DRAFT_WIDTH - margin));
+    const rightSideLeft = rect.right + gap;
+    const leftSideLeft = rect.left - DRAFT_WIDTH - gap;
+    // Vertical anchor for side placement: align to the selection's top, clamped to the
+    // viewport. Below/above uses the anchor's edges instead.
+    const sideTop = Math.max(margin, Math.min(rect.top, window.innerHeight - formHEst - margin));
     const below = rect.bottom + 6;
     const above = rect.top - 6 - formHEst;
     const fitsBelow = below + formHEst <= window.innerHeight - margin;
-    const top = fitsBelow
-      ? below
-      : above >= margin
-        ? above
-        : Math.max(margin, window.innerHeight - formHEst - margin);
+    let top: number;
+    let left: number;
+    if (rightSideLeft + DRAFT_WIDTH <= docMaxX - margin) {
+      top = sideTop;
+      left = rightSideLeft;
+    } else if (leftSideLeft >= margin) {
+      top = sideTop;
+      left = leftSideLeft;
+    } else {
+      left = Math.max(margin, Math.min(rect.left, docMaxX - DRAFT_WIDTH - margin));
+      top = fitsBelow
+        ? below
+        : above >= margin
+          ? above
+          : Math.max(margin, window.innerHeight - formHEst - margin);
+    }
     setDraft({ anchor, top, left });
     applyDraftHighlight(anchor);
     // Clear the browser's native selection so we don't get two stacked highlights:

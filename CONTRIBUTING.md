@@ -62,7 +62,7 @@ CI runs these four checks on every PR — run them locally first:
 bun run typecheck      # tsc -b
 bun run lint           # oxlint
 bun run fmt:check      # oxfmt --check  (the pre-commit hook formats staged files for you)
-bun test
+bun run test           # bun run --filter '*' test  (per-package processes: frontend's happy-dom stays out of the server tests)
 ```
 
 Keep PRs focused, and make sure CI is green. New tests should live next to the unit as
