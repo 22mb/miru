@@ -19,6 +19,7 @@ import {
   usePanelResize,
   withViewTransition,
 } from "./hooks.ts";
+import { MOD_LABEL } from "./keys.ts";
 
 // If the reviewed doc grew or shrunk enough that the "changed region" is a large fraction
 // of the current text, the prefix/suffix diff is almost certainly conflating unrelated
@@ -138,20 +139,20 @@ export function App({
   // Wrap an async mutator so a rejection surfaces as a toast; resolves true on success,
   // false on failure. A boolean instead of a re-throw so no caller can forget to catch —
   // fire-and-forget callers (delete / resolve) just drop the flag, callers that keep
-  // their form open on failure (reply / draft submit) branch on it.
-  const guard = useCallback(
+  // their form open on failure (reply / draft submit) branch on it. Not memoised: the
+  // returned inner arrow is fresh every call, so useCallback would only stabilise the
+  // outer factory (never consumed as a reference).
+  const guard =
     <A extends unknown[]>(fn: (...args: A) => Promise<unknown>, msg: string) =>
-      async (...args: A): Promise<boolean> => {
-        try {
-          await fn(...args);
-          return true;
-        } catch {
-          notify(msg);
-          return false;
-        }
-      },
-    [notify],
-  );
+    async (...args: A): Promise<boolean> => {
+      try {
+        await fn(...args);
+        return true;
+      } catch {
+        notify(msg);
+        return false;
+      }
+    };
 
   // Resolved comments are hidden by default — the toggle in the header restores them.
   // Derived before the keyboard hook so j/k navigate exactly what's rendered; feeding
@@ -197,6 +198,13 @@ export function App({
       window.clearTimeout(armedTimerRef.current);
       armedTimerRef.current = null;
     }
+  }, []);
+  // Symmetric to the toast cleanup above: if the boundary catches while armed, the
+  // 4s timer would otherwise setState into a dead tree.
+  useEffect(() => {
+    return () => {
+      if (armedTimerRef.current !== null) window.clearTimeout(armedTimerRef.current);
+    };
   }, []);
   const [approved, approveAction, approving] = useActionState<boolean>(async () => {
     if (!armed) {
@@ -470,10 +478,21 @@ export function App({
               ))}
             </ul>
           )}
-          {/* Always-visible shortcut reminder — the empty state's hint disappears the
-            moment a comment exists, but j/k/r/Esc keep working. */}
+          {/* Always-visible shortcut reminder. Swaps to draft-form shortcuts while a
+            draft is open — the panel-nav j/k/r don't fire while a textarea has focus
+            (the useDocumentEvent handler skips TEXTAREA so text stays typeable), so
+            showing them then would be a broken promise. */}
           <footer className="miru-panel__foot" aria-label="keyboard shortcuts">
-            <kbd>j</kbd>/<kbd>k</kbd> navigate · <kbd>r</kbd> resolve · <kbd>Esc</kbd> cancel draft
+            {draft ? (
+              <>
+                <kbd>{MOD_LABEL}</kbd>+<kbd>⏎</kbd> send · <kbd>{MOD_LABEL}</kbd>+<kbd>⇧</kbd>+
+                <kbd>⏎</kbd> save draft · <kbd>Esc</kbd> cancel
+              </>
+            ) : (
+              <>
+                <kbd>j</kbd>/<kbd>k</kbd> navigate · <kbd>r</kbd> resolve
+              </>
+            )}
           </footer>
         </aside>
       )}

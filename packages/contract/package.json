@@ -8,6 +8,9 @@
       "default": "./index.ts"
     }
   },
+  "scripts": {
+    "test": "bun test"
+  },
   "dependencies": {
     "zod": "^4.4.3"
   }

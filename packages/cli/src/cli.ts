@@ -205,7 +205,7 @@ if (command === "comment") {
 // ---------- headless: next (block until comments await the agent, or it's approved) ----------
 if (command === "next") {
   const file = requireFile(positionals[1]);
-  // agentView strips staged ("Add to review") replies and bodyHtml — the human is still
+  // agentView strips staged ("Save draft") replies and bodyHtml — the human is still
   // composing drafts and /api/review/submit hasn't promoted them, so the agent shouldn't react.
   const snapshot = async () => agentView(await loadReview(file), awaitingAgent);
   let s = await snapshot();
