@@ -120,6 +120,13 @@
     /* Reserve the scrollbar gutter on classic-scrollbar platforms so the document
        doesn't shift sideways when its height crosses one screen. */
     scrollbar-gutter: stable;
+    /* Containment is the structural half of "an untrusted document can't impersonate
+       miru UI". The default tier passes CSS verbatim on purpose (see render.ts), so a
+       document CAN write position:fixed — `contain` makes this element the containing
+       block for it and clips the paint, keeping any overlay inside the document area.
+       The panel's own defence is the top layer (popover), which no z-index can beat;
+       this closes the other half, the part that doesn't depend on stacking order. */
+    contain: layout paint;
   }
 
   /* Panel hidden via its header toggle: hand the reserved width back to the document.
