@@ -26,7 +26,13 @@ the workflow around the code.
 - Never start `miru review` twice for the same file — the second bind fails. Restarting
   means killing the old process first, then relaunching.
 - The Stop hook lint/typechecks the files you edited but **does not run tests** — run
-  `bun test` (or `test:server` / `test:frontend`) yourself before finishing.
+  `bun run test` yourself before finishing (one package only:
+  `bun run --filter '@miru/server' test`). Use the script, not a bare `bun test` over
+  several packages: `test` fans out per package so each gets its own process, which is
+  what keeps the frontend's happy-dom globals out of the server tests.
+- A new package with tests needs its own `"test": "bun test"` script — `--filter` skips
+  packages that don't have one, silently. `packages/cli` has none because it has no
+  tests yet (`bun test` exits 1 when it matches no files).
 
 ## Release
 
@@ -40,8 +46,3 @@ the workflow around the code.
 - The scope is deliberately narrow (see README "Scope"). **Removing a feature is a valid
   fix** — when a feature is questionable, propose removal or deferral, not elaboration.
 - No new runtime dependencies or UI libraries; plain CSS. Details are in the rules.
-
-## Scratch files
-
-- `fable-*.md` at the repo root are one-off prompt drafts for separate AI review
-  sessions, not project documentation.
