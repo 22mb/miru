@@ -5,6 +5,9 @@
     "miru": "./src/cli.ts"
   },
   "type": "module",
+  "scripts": {
+    "test": "bun test"
+  },
   "dependencies": {
     "@miru/contract": "workspace:*",
     "@miru/server": "workspace:*"

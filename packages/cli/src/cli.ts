@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { parseArgs } from "node:util";
-import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { randomBytes } from "node:crypto";
@@ -20,7 +20,7 @@ import {
   type ReviewFile,
   type SanitizeTier,
 } from "@miru/server";
-import { addReply, agentView, awaitingAgent, openForAgent, stampPickedUp } from "@miru/contract";
+import { applyCommentUpdate, awaitAgentTurn, commentsOutput, installSkill } from "./commands.ts";
 import skillMd from "./skill/SKILL.md" with { type: "text" };
 // The frontend bundle produced by `bun run build:front`. Text-imported here so the
 // server itself has no reference to the frontend build output — its tests can run
@@ -121,18 +121,7 @@ const command = positionals[0];
 if (command === "comments") {
   const file = requireFile(positionals[1]);
   const review = await loadReview(file);
-  const unresolved = review.comments.filter(openForAgent);
-  if (values.json) {
-    console.log(JSON.stringify(agentView(review, openForAgent), null, 2));
-  } else if (unresolved.length === 0) {
-    console.log("No unresolved comments.");
-  } else {
-    for (const c of unresolved) {
-      const loc = c.anchor.type === "text" ? `"${c.anchor.quote}"` : c.anchor.selector;
-      const sug = c.suggestion ? `\n  suggestion: ${c.suggestion.replacement}` : "";
-      console.log(`- [${c.id}] (${c.anchor.type}) ${loc}\n  ${c.body}${sug}`);
-    }
-  }
+  console.log(commentsOutput(review, values.json));
   process.exit(0);
 }
 
@@ -143,17 +132,12 @@ if (command === "install") {
     console.error(`miru: unsupported agent: ${agent} (supported: claude-code)`);
     process.exit(1);
   }
-  const dir = join(homedir(), ".claude", "skills", "miru");
-  mkdirSync(dir, { recursive: true });
-  const dest = join(dir, "SKILL.md");
-  // Refuse to write through a symlink at the destination — defends against a planted
-  // symlink redirecting the write to (e.g.) ~/.bashrc.
-  if (existsSync(dest) && lstatSync(dest).isSymbolicLink()) {
-    console.error(`miru: refusing to write through a symlink at ${dest}`);
+  const result = installSkill(join(homedir(), ".claude", "skills", "miru"), skillMd);
+  if (!result.ok) {
+    console.error(`miru: ${result.error}`);
     process.exit(1);
   }
-  writeFileSync(dest, skillMd);
-  console.error(`miru: installed skill -> ${dest}`);
+  console.error(`miru: installed skill -> ${result.dest}`);
   process.exit(0);
 }
 
@@ -171,29 +155,10 @@ if (command === "comment") {
     console.error("miru: reply body required: miru comment <file> --reply-to <id> <body>");
     process.exit(1);
   }
-  const updatedId = await updateReview(file, (loaded) => {
-    const existing = loaded.comments.find((c) => c.id === targetId);
-    if (!existing) return { review: loaded, result: null };
-    let comment = existing;
-    if (replyBody !== undefined) {
-      // `miru comment --reply-to` is how the agent loop posts back; the browser never
-      // goes through this path, so the author is always the agent here and the reply
-      // is never staged (addReply flips status to "answered").
-      comment = addReply(
-        comment,
-        { id: shortId("r"), body: replyBody, author: "agent", draft: false },
-        new Date().toISOString(),
-      );
-    }
-    if (values.resolve) comment = { ...comment, resolved: true };
-    return {
-      review: {
-        ...loaded,
-        comments: loaded.comments.map((c) => (c.id === targetId ? comment : c)),
-      },
-      result: comment.id,
-    };
-  });
+  const update = { targetId, replyBody, resolve: Boolean(values.resolve) };
+  const updatedId = await updateReview(file, (loaded) =>
+    applyCommentUpdate(loaded, update, shortId("r"), new Date().toISOString()),
+  );
   if (updatedId === null) {
     console.error(`miru: comment not found: ${targetId}`);
     process.exit(1);
@@ -205,38 +170,9 @@ if (command === "comment") {
 // ---------- headless: next (block until comments await the agent, or it's approved) ----------
 if (command === "next") {
   const file = requireFile(positionals[1]);
-  // agentView strips staged ("Save draft") replies and bodyHtml — the human is still
-  // composing drafts and /api/review/submit hasn't promoted them, so the agent shouldn't react.
-  const snapshot = async () => agentView(await loadReview(file), awaitingAgent);
-  let s = await snapshot();
-  if (!s.approved && s.comments.length === 0) {
-    // Watch the directory (not the sidecar itself: saveReview's atomic rename swaps the
-    // inode) and re-check until something awaits the agent or the human approves.
-    s = await new Promise<typeof s>((resolve) => {
-      const stop = watchFile(dirname(file), async () => {
-        const next = await snapshot();
-        if (next.approved || next.comments.length > 0) {
-          stop();
-          resolve(next);
-        }
-      });
-    });
-  }
-  // Stamp picked-up comments so the panel can show "agent is reviewing". Reuse the
-  // full review (not the filtered snapshot) so unrelated comments stay intact.
-  // Each `miru next` refreshes the timestamp; the value is descriptive, not strictly
-  // semantic — a stale stamp on a crashed agent looks like "still reviewing", which
-  // the human can interpret with a relative-time hint in the UI.
-  if (s.comments.length > 0) {
-    const ids = new Set(s.comments.map((c) => c.id));
-    const now = new Date().toISOString();
-    // stampPickedUp returns the same review reference when nothing matched, so
-    // updateReview's identity check skips the save in that case.
-    await updateReview(file, (loaded) => {
-      const { review } = stampPickedUp(loaded, ids, now);
-      return { review, result: undefined };
-    });
-  }
+  // The exit-on-corruption loadReview wrapper goes in as the loader, so a sidecar
+  // that turns bad mid-wait still surfaces as a clean message, not a stack trace.
+  const s = await awaitAgentTurn(file, loadReview);
   console.log(JSON.stringify(s, null, 2));
   process.exit(0);
 }
@@ -324,7 +260,8 @@ stopWatch();
 
 const review = await loadReview(file);
 // Emit the verdict + unresolved comments as JSON on stdout → the AI agent reads/replies/fixes.
-console.log(JSON.stringify(agentView(review, openForAgent), null, 2));
+// Same projection as `miru comments --json` (commentsOutput json mode) by construction.
+console.log(commentsOutput(review, true));
 
 server.stop();
 process.exit(0);

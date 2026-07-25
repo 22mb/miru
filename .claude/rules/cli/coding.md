@@ -13,5 +13,6 @@ Runtime is **Bun**, no DOM — same conventions as the server package: explicit 
 - **Don't weaken the security defaults from the CLI side**: loopback bind, per-launch `randomBytes` token, `--unsafe-raw` as the only sanitization escape hatch, the symlink guard in `miru install`. A new flag must not silently widen exposure.
 - Spawn external programs with `Bun.spawn`'s array form (no shell) — see `openBrowser`.
 - User errors: `console.error("miru: ...")` + non-zero exit, matching the existing messages.
+- **Command logic lives in `commands.ts`**, importable without executing the entry script (`cli.ts` runs on import and must never be imported back). New command behavior goes there as value-in/value-out functions — inject I/O seams (like the review loader) as parameters; `cli.ts` keeps arg parsing, printing, `process.exit`, and the long-running `review` orchestration.
 
-Tests: `bun test`, colocated `*.test.ts`; style per the server testing rule. This package has none yet — the first one also needs a `"test": "bun test"` script in `packages/cli/package.json`, or the root `bun run test` fan-out will skip it.
+Tests: `bun test`, colocated `*.test.ts` (see `commands.test.ts`); style per the server testing rule.
