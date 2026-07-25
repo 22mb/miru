@@ -28,6 +28,17 @@
   // alone when 0.59.0 lands because the range already covers it — the manifest would
   // drift from what's installed. `bump` keeps the manifest honest.
   "rangeStrategy": "bump",
+  // Don't propose a version until it has been public for three days. Hijacked npm
+  // releases are typically caught and unpublished within hours, so a short wait clears
+  // most of that exposure — and it matters more here than usual, because non-major
+  // updates below are set to merge without anyone reading them. Security updates
+  // deliberately bypass this. Renovate holds pending versions on the Dependency
+  // Dashboard rather than opening a PR (internalChecksFilter defaults to strict).
+  //
+  // This only covers what Renovate itself bumps. The same window is set for Bun in
+  // bunfig.toml, which is what applies when the lockfile gets regenerated — including
+  // transitive dependencies, which Renovate does not manage.
+  "minimumReleaseAge": "3 days",
   "packageRules": [
     {
       // One PR a week for everything that isn't a major — including the GitHub Action
