@@ -37,8 +37,10 @@ the workflow around the code.
 
 - Version is CalVer (`YYYY.M.D[.n]`), single-sourced in the root `package.json`; bump
   with `bun run bump`. Merging the bump to `main` is what triggers the release workflow.
-- The Homebrew tap (`22mb/homebrew-miru`) is a **separate repo, updated manually** —
-  after a release, its formula needs the new version and checksums.
+- The Homebrew tap (`22mb/homebrew-miru`) is a **separate repo**. After a release, run its
+  "Bump formula" workflow from the Actions tab — it rewrites the formula, verifies it with
+  `brew audit`/`install`/`test`, and opens the PR. Nothing here pushes to the tap, so the
+  tap needs no credentials of ours and this repo needs none of its.
 
 ## Scope & philosophy
 
