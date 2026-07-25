@@ -31,8 +31,7 @@ the workflow around the code.
   several packages: `test` fans out per package so each gets its own process, which is
   what keeps the frontend's happy-dom globals out of the server tests.
 - A new package with tests needs its own `"test": "bun test"` script — `--filter` skips
-  packages that don't have one, silently. `packages/cli` has none because it has no
-  tests yet (`bun test` exits 1 when it matches no files).
+  packages that don't have one, silently (`bun test` exits 1 when it matches no files).
 
 ## Release
 
