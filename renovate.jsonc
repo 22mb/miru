@@ -30,10 +30,16 @@
   "rangeStrategy": "bump",
   "packageRules": [
     {
-      // One PR a week for routine bumps. Majors stay on their own so they get read
-      // rather than skimmed as part of a batch.
-      "matchUpdateTypes": ["minor", "patch"],
-      "groupName": "minor and patch"
+      // One PR a week for everything that isn't a major — including the GitHub Action
+      // digest bumps, which move the SHA and its `# vX.Y.Z` comment together. Majors
+      // stay on their own so they get read rather than skimmed as part of a batch.
+      "matchUpdateTypes": ["minor", "patch", "digest", "pin"],
+      "groupName": "non-major",
+      // Merged without a human once the four required checks pass. `platformAutomerge`
+      // (on by default) hands this to GitHub's own auto-merge, so the branch ruleset
+      // still gates it: the checks must pass, and the approval it also requires has to
+      // be waived for Renovate via a bypass actor, or nothing will ever merge itself.
+      "automerge": true
     }
   ]
 }
