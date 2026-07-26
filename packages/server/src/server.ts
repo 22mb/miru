@@ -18,6 +18,7 @@ import {
   dismissApproval,
   PatchCommentBody,
   promoteDrafts,
+  type DocPayload,
   type HydratedComment,
   type HydratedReply,
   type HydratedReviewFile,
@@ -40,6 +41,10 @@ function hydrateReview(r: ReviewFile): HydratedReviewFile {
 
 export interface ServeOptions {
   initialHtml: string;
+  /** `.miru-doc`'s contents on their own (wrapDocument's `doc`), or null when the page
+   *  isn't template-owned. Drives whether a source change is pushed as an in-place doc
+   *  swap or a full reload — see notifyDocChange. */
+  initialDoc: string | null;
   target: string;
   token: string;
   nonce: string;
@@ -58,9 +63,15 @@ export interface ReviewServer {
   server: Server<undefined>;
   /** Resolves when "Approve" is pressed (= the end of this review round). */
   finished: Promise<void>;
-  /** Replace the served document HTML (used on file change). */
-  setHtml(html: string): void;
-  /** Tell connected browsers to reload (used on file change). */
+  /** Replace the served page and its swappable body (used on file change). */
+  setHtml(html: string, doc: string | null): void;
+  /** Tell connected browsers the document changed. Template-owned pages get an in-place
+   *  swap of `.miru-doc` (keeping scroll position, panel state and open cards); pages
+   *  that brought their own <head>/<script> fall back to a full reload, which is the
+   *  only thing that re-runs them. */
+  notifyDocChange(): void;
+  /** Tell connected browsers to reload outright. Only the dev server needs this — a
+   *  rebuilt panel bundle can't be applied to a running page. */
   notifyReload(): void;
   /** Tell connected browsers to refetch comments (used when the sidecar JSON is
    *  modified out-of-band — e.g. `miru comment` writes directly to disk). */
@@ -129,6 +140,7 @@ function tokensEqual(a: string, b: string): boolean {
 
 export function createServer(opts: ServeOptions): ReviewServer {
   let currentHtml = opts.initialHtml;
+  let currentDoc = opts.initialDoc;
   const { promise: finished, resolve: resolveFinish } = Promise.withResolvers<void>();
 
   // Nonce is fixed for the server's lifetime; build the header once.
@@ -168,6 +180,13 @@ export function createServer(opts: ServeOptions): ReviewServer {
     return new Response(opts.assets.css, {
       headers: { "content-type": "text/css; charset=utf-8" },
     });
+  }
+  // The re-rendered document body, fetched by the browser after a `doc` event. 404 when
+  // the page isn't template-owned: those never get a `doc` event in the first place, so
+  // reaching here means a stale client — the status tells it to fall back to a reload.
+  function serveDoc(): Response {
+    if (currentDoc === null) return new Response("not swappable", { status: 404 });
+    return Response.json({ html: currentDoc } satisfies DocPayload);
   }
   function serveEvents(): Response {
     let client: ReadableStreamDefaultController<Uint8Array>;
@@ -312,6 +331,7 @@ export function createServer(opts: ServeOptions): ReviewServer {
     { method: "GET", pattern: "/__miru__/miru.css", auth: "public", handler: () => serveCss() },
     // SSE only pushes "reload"/"comments" hints (no data) — Host/Origin is still enforced.
     { method: "GET", pattern: "/api/events", auth: "public", handler: () => serveEvents() },
+    { method: "GET", pattern: "/api/doc", auth: "token", handler: () => serveDoc() },
     { method: "POST", pattern: "/api/approve", auth: "token", handler: () => handleApprove() },
     { method: "GET", pattern: "/api/comments", auth: "token", handler: () => handleListComments() },
     {
@@ -400,8 +420,12 @@ export function createServer(opts: ServeOptions): ReviewServer {
   return {
     server,
     finished,
-    setHtml(html: string) {
+    setHtml(html: string, doc: string | null) {
       currentHtml = html;
+      currentDoc = doc;
+    },
+    notifyDocChange() {
+      broadcast(currentDoc === null ? "reload" : "doc");
     },
     notifyReload() {
       broadcast("reload");

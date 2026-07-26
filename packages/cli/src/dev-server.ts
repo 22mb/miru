@@ -22,7 +22,8 @@ import {
   renderDocument,
   reviewPath,
   watchFile,
-  wrapIfFragment,
+  wrapDocument,
+  type WrappedDocument,
 } from "@miru/server";
 
 const FRONTEND_SRC = join(import.meta.dirname, "../../frontend/src");
@@ -88,15 +89,18 @@ if (!(await buildAssets())) process.exit(1);
 const token = randomBytes(24).toString("hex");
 const nonce = randomBytes(16).toString("base64");
 
-const renderHtml = (): string => {
+const render = (): WrappedDocument => {
   const kind = detectKind(file);
   const rendered = renderDocument(readFileSync(file, "utf8"), kind, "default");
-  return injectUI(wrapIfFragment(rendered, kind, basename(file), "en"), { token, nonce });
+  const wrapped = wrapDocument(rendered, kind, basename(file), "en");
+  return { html: injectUI(wrapped.html, { token, nonce }), doc: wrapped.doc };
 };
 
-const { server, setHtml, notifyReload, notifyComments } = createServer({
+const initial = render();
+const { server, setHtml, notifyDocChange, notifyReload, notifyComments } = createServer({
   port: Number(values.port),
-  initialHtml: renderHtml(),
+  initialHtml: initial.html,
+  initialDoc: initial.doc,
   target: file,
   token,
   nonce,
@@ -153,9 +157,10 @@ watchFile(dirname(file), (changed) => {
     notifyComments();
   } else if (changed.startsWith(sourceName)) {
     try {
-      setHtml(renderHtml());
-      notifyReload();
-      console.error(`miru-dev: ${file} changed — browser reloaded`);
+      const next = render();
+      setHtml(next.html, next.doc);
+      notifyDocChange();
+      console.error(`miru-dev: ${file} changed — browser updated`);
     } catch (err) {
       console.error(`miru-dev: re-render failed: ${String(err)}`);
     }

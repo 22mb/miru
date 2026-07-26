@@ -12,6 +12,7 @@ import {
   popoverRef,
   useAltHoverPreview,
   useComments,
+  useDocSwap,
   useDraftCapture,
   useKeyboardShortcuts,
   useLiveReload,
@@ -58,15 +59,17 @@ function CommentIcon({ className }: { className: string }) {
 
 export function App({
   initialCommentsPromise,
-  changedRange,
+  changedRange: initialChangedRange,
 }: {
   initialCommentsPromise: Promise<HydratedReviewFile>;
-  // Post-live-reload diff, computed once per page load in index.tsx (the snapshot
-  // consumption is single-shot, so it can't live in an effect). Null when this load
-  // wasn't a live reload or nothing changed.
+  // Post-reload diff, computed once per page load in index.tsx (the snapshot consumption
+  // is single-shot, so it can't live in an effect). Null when this load wasn't a fallback
+  // reload or nothing changed. In-place swaps compute their own diff (useDocSwap) and
+  // replace this.
   changedRange: { start: number; end: number } | null;
 }) {
-  const c = useComments(initialCommentsPromise);
+  const { doc, changedRange, swapDoc, clearChangedRange } = useDocSwap(initialChangedRange);
+  const c = useComments(initialCommentsPromise, doc);
   const [showResolved, setShowResolved] = useState(false);
   const [panelHidden, setPanelHidden] = usePanelHidden();
   const { draft, clearDraft } = useDraftCapture();
@@ -79,15 +82,18 @@ export function App({
 
   useEffect(() => {
     applyHighlights(c.comments, c.activeId);
-  }, [c.comments, c.activeId]);
+    // doc: the painted Ranges point at document nodes an in-place swap has replaced, so
+    // every swap has to repaint them from the new DOM.
+  }, [c.comments, c.activeId, doc]);
 
-  // Post-live-reload flash: paint the changed range for CHANGED_FLASH_MS and show the
-  // chip. Consuming the snapshot and diffing happen once per page load in index.tsx;
-  // what remains here is an idempotent paint + timer with full cleanup, so a remount
-  // (StrictMode, tests) repaints instead of losing the flash. The highlight is dropped
-  // when the diff is too coarse to be useful (see MAX_CHANGED_FRACTION); the chip still
-  // fires so the reviewer knows the reload landed.
-  const [changedChip, setChangedChip] = useState(changedRange !== null);
+  // Post-update flash: paint the changed range for CHANGED_FLASH_MS and show the chip.
+  // The diff itself is computed elsewhere — in index.tsx for a fallback reload, in
+  // useDocSwap for an in-place swap — so what remains here is an idempotent paint +
+  // timer with full cleanup, re-armed by each new range and safe across a remount
+  // (StrictMode, tests). The highlight is dropped when the diff is too coarse to be
+  // useful (see MAX_CHANGED_FRACTION); the chip still shows so the reviewer knows the
+  // update landed. `changedRange` alone drives both — expiry clears the range itself
+  // rather than a second "is the chip up" flag that could drift out of step with it.
   useEffect(() => {
     if (!changedRange) return;
     const span = changedRange.end - changedRange.start;
@@ -95,13 +101,13 @@ export function App({
     if (len > 0 && span / len <= MAX_CHANGED_FRACTION) applyChangedHighlight(changedRange);
     const t = window.setTimeout(() => {
       applyChangedHighlight(null);
-      setChangedChip(false);
+      clearChangedRange();
     }, CHANGED_FLASH_MS);
     return () => {
       window.clearTimeout(t);
       applyChangedHighlight(null);
     };
-  }, [changedRange]);
+  }, [changedRange, clearChangedRange]);
 
   // Card hover → highlight that comment's anchor in the doc, painted straight from the
   // event handler — same reasoning as the draft highlight in useDraftCapture: every
@@ -114,9 +120,9 @@ export function App({
     applyPreviewHighlight(target?.anchor ?? null);
   };
 
-  // Defer file-change reloads while a draft is open — the reload wipes the textarea
-  // contents and the file change is usually what the user is reacting to.
-  const { connected } = useLiveReload(c.reload, !!draft);
+  // Defer document updates while a draft is open — the draft's anchor was built against
+  // the text being replaced, and the file change is usually what the user is reacting to.
+  const { connected } = useLiveReload(c.reload, swapDoc, !!draft);
 
   // Transient toast for API save failures (the API call throws; we surface it here).
   // Only one at a time — a second failure replaces the message rather than stacking; the
@@ -302,7 +308,7 @@ export function App({
           {toast}
         </div>
       )}
-      {changedChip && (
+      {changedRange && (
         // Top-layer popover like the toast — a light-DOM z-index would lose to any
         // document CSS stacking games now that document <style> passes sanitization.
         <div

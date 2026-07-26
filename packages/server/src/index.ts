@@ -17,6 +17,6 @@ export {
   type SanitizeTier,
   type SourceKind,
 } from "./render.ts";
-export { injectUI, wrapIfFragment } from "./inject.ts";
+export { injectUI, wrapDocument, type WrappedDocument } from "./inject.ts";
 export { watchFile } from "./watch.ts";
 export { shortId } from "./id.ts";

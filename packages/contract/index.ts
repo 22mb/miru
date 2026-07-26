@@ -159,7 +159,13 @@ export function agentView(
 
 // SSE wire events pushed by the server (`/api/events`); the browser switches on these
 // literals. Type-only so the frontend's "types only from contract" rule holds.
-export type SseEvent = "reload" | "comments";
+//
+// `doc` and `reload` both mean "the source file changed", and differ in how the browser
+// applies it: `doc` fetches /api/doc and swaps `.miru-doc`'s innerHTML in place, keeping
+// scroll position and panel state; `reload` is the sledgehammer, used when an in-place
+// swap can't produce the right result (a raw full document's own <head>/<script>, or a
+// dev-server frontend rebuild where the panel bundle itself changed).
+export type SseEvent = "reload" | "comments" | "doc";
 
 // ---------- wire hydrations (server → browser) ----------
 // The browser panel injects a sanitized HTML render of `body` via
@@ -176,6 +182,13 @@ export type HydratedComment = Omit<Comment, "replies"> & {
 export type HydratedReviewFile = Omit<ReviewFile, "comments"> & {
   comments: HydratedComment[];
 };
+
+// GET /api/doc: the re-rendered document body, served so a source change can be applied
+// without a page reload (see SseEvent's `doc`). Server → browser only, like the
+// Hydrated* shapes above — no schema, since nothing validates it on the way in.
+export interface DocPayload {
+  html: string;
+}
 
 // ---------- lifecycle transitions (pure) ----------
 // Centralize the state-machine here so server routes and CLI commands cannot drift.

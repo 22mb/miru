@@ -6,6 +6,7 @@
 // ReviewFile) has no bodyHtml.
 import type {
   CreateCommentBody,
+  DocPayload,
   HydratedComment,
   HydratedReviewFile,
   PatchCommentBody,
@@ -33,6 +34,9 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 // drift from the contract package.
 export const api = {
   listComments: () => request<HydratedReviewFile>("GET", "/api/comments"),
+  // The re-rendered document body, fetched after a `doc` SSE event. 404s (→ throws) when
+  // the page isn't template-owned; the caller falls back to a full reload.
+  doc: () => request<DocPayload>("GET", "/api/doc"),
   createComment: (body: CreateCommentBody) =>
     request<HydratedComment>("POST", "/api/comments", body),
   patchComment: (id: string, body: PatchCommentBody) =>

@@ -4,7 +4,8 @@
 //   - useComments            : Suspense-resolved comments state + mutators
 //   - useDraftCapture        : selection / Alt-click -> open draft form
 //   - useAltHoverPreview     : outline the would-be Alt-click target while Alt is held
-//   - useLiveReload          : SSE subscription, reload page or refetch comments
+//   - useDocSwap             : apply a source change by swapping the document in place
+//   - useLiveReload          : SSE subscription, dispatch doc / comments / reload
 //   - useKeyboardShortcuts   : j / k / r / Esc panel-wide bindings
 import { use, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
@@ -12,7 +13,7 @@ import type { Anchor, HydratedComment, HydratedReviewFile, SseEvent } from "@mir
 import { buildElementAnchor, buildTextAnchor, isStale, scrollToComment } from "./anchor.ts";
 import { api } from "./api.ts";
 import type { Draft } from "./DraftForm.tsx";
-import { DOC, docText, stashPreReloadText } from "./dom.ts";
+import { diffRange, DOC, docScroller, docText, stashPreReloadText } from "./dom.ts";
 import { applyDraftHighlight } from "./highlight.ts";
 
 // Content-bearing block elements an Alt+click resolves to (nearest ancestor wins —
@@ -103,7 +104,6 @@ export function useDocumentEvent<K extends keyof DocumentEventMap>(
     document.addEventListener(type, listener);
     return () => document.removeEventListener(type, listener);
     // `onEvent` is from useEffectEvent: it must not be in deps (React rule).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [type]);
 }
 
@@ -132,7 +132,14 @@ const FRESH_REPLY_MS = 8000;
 // empty array + a useEffect refetch. The promise is owned by the caller (above the
 // Suspense boundary) — creating it inside would re-fire on every Suspense remount and
 // loop forever. Subsequent reloads just setComments.
-export function useComments(initialPromise: Promise<HydratedReviewFile>): CommentsApi {
+//
+// The document snapshot (useDocSwap) is taken as an input because staleness is a question
+// about the live document, not just the comment set: an in-place swap changes the answer
+// without touching a single comment.
+export function useComments(
+  initialPromise: Promise<HydratedReviewFile>,
+  doc: DocSnapshot,
+): CommentsApi {
   const initial = use(initialPromise);
   const [comments, setComments] = useState<HydratedComment[]>(initial.comments);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -249,12 +256,14 @@ export function useComments(initialPromise: Promise<HydratedReviewFile>): Commen
     [comments],
   );
 
-  // Staleness depends only on the (static) document and the comment set, so compute it once
-  // per comment-set change instead of on every Card render (e.g. while typing a reply).
-  const staleIds = useMemo(() => {
-    const full = docText(DOC());
-    return new Set(comments.filter((c) => isStale(c, full)).map((c) => c.id));
-  }, [comments]);
+  // Staleness depends only on the document and the comment set, so compute it once per
+  // change to either instead of on every Card render (e.g. while typing a reply). Text
+  // anchors resolve against `doc.text`; element anchors still read the DOM, which is why
+  // the whole snapshot (fresh per swap) is the dependency rather than just its text.
+  const staleIds = useMemo(
+    () => new Set(comments.filter((c) => isStale(c, doc.text)).map((c) => c.id)),
+    [comments, doc],
+  );
 
   return {
     comments,
@@ -408,9 +417,72 @@ export function useAltHoverPreview(): void {
 // a live reload. On the next page load the App reads it (once) and paints a transient
 // highlight over what changed — the "did the agent apply my suggestion verbatim?" check.
 // A no-op if the snapshot can't be written (private-browsing / storage quota).
+//
+// Only the fallback paths still reload: a raw full document (its own <head>/<script>
+// can't be re-run by an innerHTML swap), a dev-server panel rebuild, and a failed
+// /api/doc fetch. The normal source edit goes through useDocSwap below.
 function reloadWithSnapshot(): void {
   stashPreReloadText(docText(DOC()));
   location.reload();
+}
+
+// The reviewed document as React sees it. `text` is what text-anchor resolution actually
+// consumes, so derivations depend on real data rather than on a version counter they'd
+// have to pretend to read. A fresh object per swap is deliberate: a structural-only edit
+// (same text, different elements) leaves `text` equal but still invalidates every element
+// anchor and every painted Range, and identity is what makes those recompute.
+export interface DocSnapshot {
+  text: string;
+}
+
+// A source edit applied in place: fetch the re-rendered body and swap `.miru-doc`'s
+// contents. Everything a reload used to destroy — panel state, open cards, a half-typed
+// reply, the reading position — simply survives, which is the whole point.
+//
+// The returned snapshot is how the swap reaches everything derived from the live DOM
+// rather than from React state (anchor staleness, the painted highlight Ranges): those
+// hold references to nodes that no longer exist, so each takes it as a dependency.
+//
+// `changedRange` starts as the post-reload diff computed in index.tsx and is replaced by
+// an in-memory before/after diff on each swap — no sessionStorage round-trip needed once
+// the JS heap survives the update.
+export function useDocSwap(initialChangedRange: { start: number; end: number } | null): {
+  doc: DocSnapshot;
+  changedRange: { start: number; end: number } | null;
+  swapDoc: () => Promise<void>;
+  /** Drop the current range once its flash has run its course (App owns the timer). */
+  clearChangedRange: () => void;
+} {
+  const [doc, setDoc] = useState<DocSnapshot>(() => ({ text: docText(DOC()) }));
+  const [changedRange, setChangedRange] = useState(initialChangedRange);
+  const clearChangedRange = useCallback(() => setChangedRange(null), []);
+
+  const swapDoc = useCallback(async () => {
+    const root = DOC();
+    const before = docText(root);
+    let html: string;
+    try {
+      ({ html } = await api.doc());
+    } catch {
+      // Server gone, or it declined to hand out a body (raw document reached by a stale
+      // client). Either way the reload is the honest answer.
+      reloadWithSnapshot();
+      return;
+    }
+    // Writing innerHTML empties the element before refilling it, and the browser clamps
+    // a scroll container's scrollTop to the momentarily-zero content height. Save and
+    // restore around the swap or every update snaps the reader back to the top.
+    const scroller = docScroller();
+    const top = scroller ? scroller.scrollTop : window.scrollY;
+    root.innerHTML = html;
+    if (scroller) scroller.scrollTop = top;
+    else window.scrollTo(0, top);
+    const after = docText(root);
+    setChangedRange(diffRange(before, after));
+    setDoc({ text: after });
+  }, []);
+
+  return { doc, changedRange, swapDoc, clearChangedRange };
 }
 
 // Debounce window for the "connection lost" banner. EventSource fires `onerror` on both
@@ -419,56 +491,76 @@ function reloadWithSnapshot(): void {
 // banner during a normal reconnect.
 const CONN_LOST_MS = 3000;
 
-// Server -> client live updates: a file change forces a hard reload (CSS, anchors,
-// document text are all derived from the served HTML); a comments change just refetches.
+// Server -> client live updates: a source change swaps the document in place (`doc`) or,
+// when an in-place swap can't produce the right result, reloads the page (`reload`); a
+// comments change just refetches.
 //
-// Refetches are DEFERRED while the user is in IME composition. Re-rendering a
+// Updates are DEFERRED while the user is in IME composition. Re-rendering a
 // controlled textarea (value={replyText}) mid-composition wipes the IME state —
 // React's value-prop write trampling the browser's composition buffer — which is
 // exactly the moment a CJK user is most exposed (any background SSE event during
 // typing kills the in-flight characters). We listen for compositionstart/end at
-// the document level and coalesce all pending refetches into one post-composition.
+// the document level and coalesce all pending updates into one post-composition.
 //
-// Reloads are also DEFERRED while a draft form is open (`reloadDeferred`). A hard
-// reload mid-draft would wipe what the user is typing, and the most likely moment a
-// file change arrives is exactly when the user is reacting to it. When the draft
-// closes (submit / cancel), the deferred reload flushes. Trade-off: the just-submitted
+// Document changes are also DEFERRED while a draft form is open (`updateDeferred`). The
+// draft's anchor was built against the text now being replaced, and the most likely
+// moment a file change arrives is exactly when the user is reacting to it. When the draft
+// closes (submit / cancel), the deferred update flushes. Trade-off: the just-submitted
 // comment may anchor against now-stale source; the staleness badge surfaces that.
 export function useLiveReload(
   onCommentsChange: () => void,
-  reloadDeferred = false,
+  // Async (it fetches the new body); nothing here awaits it — a swap that fails falls
+  // back to a reload on its own.
+  onDocChange: () => void | Promise<void>,
+  updateDeferred = false,
 ): { connected: boolean } {
   const composingRef = useRef(false);
   const pendingCommentsRef = useRef(false);
+  const pendingDocRef = useRef(false);
   const pendingReloadRef = useRef(false);
   const [connected, setConnected] = useState(true);
   const disconnectTimerRef = useRef<number | null>(null);
   const handle = useEffectEvent((data: string) => {
     // `satisfies SseEvent` ties each literal to the contract type, so renaming an
     // event on the server side becomes a compile error here instead of a silent miss.
-    if (data === ("reload" satisfies SseEvent)) {
-      if (reloadDeferred) pendingReloadRef.current = true;
+    if (data === ("doc" satisfies SseEvent)) {
+      if (updateDeferred || composingRef.current) pendingDocRef.current = true;
+      else void onDocChange();
+    } else if (data === ("reload" satisfies SseEvent)) {
+      if (updateDeferred) pendingReloadRef.current = true;
       else reloadWithSnapshot();
     } else if (data === ("comments" satisfies SseEvent)) {
       if (composingRef.current) pendingCommentsRef.current = true;
       else onCommentsChange();
     }
   });
-  const flushPendingComments = useEffectEvent(() => {
-    if (pendingCommentsRef.current) {
+  // Flush whatever was held back, re-checking every gate rather than trusting the caller:
+  // the two triggers (draft closed, composition ended) each open only one of them, and a
+  // composition can end with the draft still open. A pending reload wins over a pending
+  // doc swap — it subsumes it, and running both would swap the document only to throw the
+  // page away.
+  const flushPending = useEffectEvent(() => {
+    if (!updateDeferred && pendingReloadRef.current) {
+      pendingReloadRef.current = false;
+      pendingDocRef.current = false;
+      reloadWithSnapshot();
+      return;
+    }
+    if (!updateDeferred && !composingRef.current && pendingDocRef.current) {
+      pendingDocRef.current = false;
+      void onDocChange();
+    }
+    if (!composingRef.current && pendingCommentsRef.current) {
       pendingCommentsRef.current = false;
       onCommentsChange();
     }
   });
 
-  // When `reloadDeferred` flips back to false (e.g. draft closes), fire any reload
-  // that arrived while it was true. Runs once per false transition.
+  // When `updateDeferred` flips back to false (e.g. draft closes), fire whatever arrived
+  // while it was true. Runs once per false transition.
   useEffect(() => {
-    if (!reloadDeferred && pendingReloadRef.current) {
-      pendingReloadRef.current = false;
-      reloadWithSnapshot();
-    }
-  }, [reloadDeferred]);
+    if (!updateDeferred) flushPending();
+  }, [updateDeferred]);
 
   useEffect(() => {
     const onStart = () => {
@@ -476,7 +568,7 @@ export function useLiveReload(
     };
     const onEnd = () => {
       composingRef.current = false;
-      flushPendingComments();
+      flushPending();
     };
     document.addEventListener("compositionstart", onStart);
     document.addEventListener("compositionend", onEnd);
@@ -505,9 +597,8 @@ export function useLiveReload(
       document.removeEventListener("compositionstart", onStart);
       document.removeEventListener("compositionend", onEnd);
     };
-    // `handle` / `flushPendingComments` are from useEffectEvent: they must not be in
+    // `handle` / `flushPending` are from useEffectEvent: they must not be in
     // deps (React rule).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return { connected };

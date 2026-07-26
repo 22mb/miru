@@ -16,6 +16,7 @@ import {
   inPanel,
   useAltHoverPreview,
   useComments,
+  useDocSwap,
   useDocumentEvent,
   useKeyboardShortcuts,
   useLiveReload,
@@ -255,7 +256,13 @@ describe("useLiveReload", () => {
 
   test("a comments event outside composition refetches immediately; unmount closes the stream", () => {
     const calls: number[] = [];
-    const { unmount } = renderHook(() => useLiveReload(() => calls.push(1), false));
+    const { unmount } = renderHook(() =>
+      useLiveReload(
+        () => calls.push(1),
+        () => {},
+        false,
+      ),
+    );
     act(() => lastES().emit("comments"));
     expect(calls.length).toBe(1);
     unmount();
@@ -264,7 +271,13 @@ describe("useLiveReload", () => {
 
   test("comments events during IME composition are deferred and coalesced into one flush", () => {
     const calls: number[] = [];
-    renderHook(() => useLiveReload(() => calls.push(1), false));
+    renderHook(() =>
+      useLiveReload(
+        () => calls.push(1),
+        () => {},
+        false,
+      ),
+    );
     document.dispatchEvent(new Event("compositionstart"));
     act(() => {
       lastES().emit("comments");
@@ -276,9 +289,15 @@ describe("useLiveReload", () => {
   });
 
   test("a reload during an open draft is deferred, then flushes when the draft closes", () => {
-    const { rerender } = renderHook(({ deferred }) => useLiveReload(() => {}, deferred), {
-      initialProps: { deferred: true },
-    });
+    const { rerender } = renderHook(
+      ({ deferred }) =>
+        useLiveReload(
+          () => {},
+          () => {},
+          deferred,
+        ),
+      { initialProps: { deferred: true } },
+    );
     act(() => lastES().emit("reload"));
     // Still deferred: reloadWithSnapshot hasn't run, so no snapshot was stashed.
     expect(consumePreReloadText()).toBeNull();
@@ -288,8 +307,57 @@ describe("useLiveReload", () => {
     expect(consumePreReloadText()).not.toBeNull();
   });
 
+  test("a doc event during an open draft is deferred, then flushes when the draft closes", () => {
+    const swaps: number[] = [];
+    const { rerender } = renderHook(
+      ({ deferred }) =>
+        useLiveReload(
+          () => {},
+          () => {
+            swaps.push(1);
+          },
+          deferred,
+        ),
+      { initialProps: { deferred: true } },
+    );
+    act(() => lastES().emit("doc"));
+    expect(swaps.length).toBe(0);
+    rerender({ deferred: false });
+    expect(swaps.length).toBe(1);
+  });
+
+  test("a pending reload subsumes a pending doc swap", () => {
+    const swaps: number[] = [];
+    const { rerender } = renderHook(
+      ({ deferred }) =>
+        useLiveReload(
+          () => {},
+          () => {
+            swaps.push(1);
+          },
+          deferred,
+        ),
+      { initialProps: { deferred: true } },
+    );
+    act(() => {
+      lastES().emit("doc");
+      lastES().emit("reload");
+    });
+    rerender({ deferred: false });
+    // The reload ran (its stash is the observable side effect) and the swap did not —
+    // swapping the document only to throw the page away is wasted work.
+    expect(consumePreReloadText()).not.toBeNull();
+    expect(swaps.length).toBe(0);
+  });
+
   test("a transient EventSource error does not flip connected before the debounce window", () => {
-    const { result } = renderHook(() => useLiveReload(() => {}, false));
+    const { result } = renderHook(() =>
+      useLiveReload(
+        () => {},
+        () => {},
+        false,
+      ),
+    );
     act(() => lastES().onerror?.());
     expect(result.current.connected).toBe(true);
     // The browser's silent retry reopens the stream; the pending flip is cancelled.
@@ -298,11 +366,64 @@ describe("useLiveReload", () => {
   });
 });
 
+describe("useDocSwap", () => {
+  const RealFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = RealFetch;
+    sessionStorage.clear();
+  });
+
+  test("replaces the document body in place and reports what changed", async () => {
+    document.body.innerHTML = '<main class="miru-doc"><p>before</p></main>';
+    globalThis.fetch = (async () =>
+      Response.json({ html: "<p>after</p>" })) as unknown as typeof fetch;
+    const { result } = renderHook(() => useDocSwap(null));
+    await act(async () => {
+      await result.current.swapDoc();
+    });
+    expect(document.querySelector(".miru-doc")?.innerHTML).toBe("<p>after</p>");
+    // The fresh snapshot is what re-derives staleness and repaints the highlight Ranges.
+    expect(result.current.doc.text).toBe("after");
+    expect(result.current.changedRange).toEqual({ start: 0, end: 5 });
+    // No reload was triggered: nothing was stashed for an after-reload diff.
+    expect(consumePreReloadText()).toBeNull();
+  });
+
+  test("an edit that leaves the text identical reports no change", async () => {
+    document.body.innerHTML = '<main class="miru-doc"><p>same</p></main>';
+    globalThis.fetch = (async () =>
+      Response.json({ html: "<em>same</em>" })) as unknown as typeof fetch;
+    const { result } = renderHook(() => useDocSwap(null));
+    await act(async () => {
+      await result.current.swapDoc();
+    });
+    expect(result.current.changedRange).toBeNull();
+  });
+
+  test("a failed fetch falls back to a reload", async () => {
+    document.body.innerHTML = '<main class="miru-doc"><p>before</p></main>';
+    globalThis.fetch = (async () =>
+      new Response("not swappable", { status: 404 })) as unknown as typeof fetch;
+    const { result } = renderHook(() => useDocSwap(null));
+    await act(async () => {
+      await result.current.swapDoc();
+    });
+    // reloadWithSnapshot's stash is its observable side effect (location.reload is inert
+    // here); the document is left untouched for the reload to replace.
+    expect(consumePreReloadText()).toBe("before");
+    expect(document.querySelector(".miru-doc")?.innerHTML).toBe("<p>before</p>");
+  });
+});
+
 describe("useComments", () => {
   const RealFetch = globalThis.fetch;
   afterEach(() => {
     globalThis.fetch = RealFetch;
   });
+
+  // Stable identity: a fresh object per render would re-derive staleness every time, which
+  // is exactly the signal a swap is supposed to send. These tests never swap.
+  const NO_DOC = { text: "" };
 
   // The reload path fetches through api.listComments — stub at the fetch layer, same
   // seam api.test.ts uses.
@@ -319,7 +440,7 @@ describe("useComments", () => {
     const promise = new Promise<ReturnType<typeof makeReview>>((r) => {
       resolve = r;
     });
-    const { result, rerender } = renderHook(() => useComments(promise), { wrapper });
+    const { result, rerender } = renderHook(() => useComments(promise, NO_DOC), { wrapper });
     // Two-step Suspense resume for bun + happy-dom: resolve inside act, then kick a
     // rerender — the retry never self-schedules in this environment (neither waitFor
     // polling nor an empty act picks it up).
