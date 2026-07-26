@@ -16,9 +16,10 @@ import {
   shortId,
   updateReview,
   watchFile,
-  wrapIfFragment,
+  wrapDocument,
   type ReviewFile,
   type SanitizeTier,
+  type WrappedDocument,
 } from "@miru/server";
 import { applyCommentUpdate, awaitAgentTurn, commentsOutput, installSkill } from "./commands.ts";
 import skillMd from "./skill/SKILL.md" with { type: "text" };
@@ -195,17 +196,22 @@ const tier: SanitizeTier = values["unsafe-raw"] ? "raw" : values.strict ? "stric
 const token = randomBytes(24).toString("hex");
 const nonce = randomBytes(16).toString("base64");
 
-// Render the current file contents into injected HTML. Called again on each file change.
-const renderHtml = (): string => {
+// Render the current file contents into the injected page plus the swappable body the
+// browser fetches on a doc change (null for raw full documents). Called again on each
+// file change.
+const render = (): WrappedDocument => {
   const content = readFileSync(file, "utf8");
   const kind = detectKind(file);
   const rendered = renderDocument(content, kind, tier);
-  return injectUI(wrapIfFragment(rendered, kind, basename(file), values.lang), { token, nonce });
+  const wrapped = wrapDocument(rendered, kind, basename(file), values.lang);
+  return { html: injectUI(wrapped.html, { token, nonce }), doc: wrapped.doc };
 };
 
-const { server, finished, setHtml, notifyReload, notifyComments } = createServer({
+const initial = render();
+const { server, finished, setHtml, notifyDocChange, notifyComments } = createServer({
   port: Number(values.port),
-  initialHtml: renderHtml(),
+  initialHtml: initial.html,
+  initialDoc: initial.doc,
   target: file,
   token,
   nonce,
@@ -238,9 +244,10 @@ const stopWatch = watchFile(dirname(file), (changed) => {
     notifyComments();
   } else if (changed.startsWith(sourceName)) {
     try {
-      setHtml(renderHtml());
-      notifyReload();
-      console.error(`miru: ${file} changed — browser reloaded`);
+      const next = render();
+      setHtml(next.html, next.doc);
+      notifyDocChange();
+      console.error(`miru: ${file} changed — browser updated`);
     } catch (err) {
       console.error(`miru: re-render failed: ${String(err)}`);
     }

@@ -20,22 +20,36 @@ ${body}
 </html>`;
 }
 
+export interface WrappedDocument {
+  /** The full page to serve. */
+  html: string;
+  /** `.miru-doc`'s contents on their own, or null when the page isn't template-owned.
+   *  Non-null is the server's licence to apply a source change by swapping innerHTML
+   *  (GET /api/doc) instead of reloading the page; null means the document brought its
+   *  own <head> and <script>, which only a reload re-runs. */
+  doc: string | null;
+}
+
 /** Markdown is always wrapped in the template. For HTML, wrap the body content in
  *  .miru-doc so the anchoring root is limited to the document (excludes the panel, etc.). */
-export function wrapIfFragment(
+export function wrapDocument(
   html: string,
   kind: SourceKind,
   title: string,
   lang: string,
-): string {
+): WrappedDocument {
   // Sanitized output never contains <body> (the sanitizer drops it), so both tiers
   // always take the template branch — only --unsafe-raw full documents keep their own.
-  if (kind === "markdown" || !/<body[\s>]/i.test(html)) return template(title, html, lang, kind);
-  return html.replace(
-    /(<body[^>]*>)([\s\S]*?)(<\/body>)/i,
-    (_m, open: string, inner: string, close: string) =>
-      `${open}\n<div class="miru-doc">${inner}</div>\n${close}`,
-  );
+  if (kind === "markdown" || !/<body[\s>]/i.test(html))
+    return { html: template(title, html, lang, kind), doc: html };
+  return {
+    html: html.replace(
+      /(<body[^>]*>)([\s\S]*?)(<\/body>)/i,
+      (_m, open: string, inner: string, close: string) =>
+        `${open}\n<div class="miru-doc">${inner}</div>\n${close}`,
+    ),
+    doc: null,
+  };
 }
 
 /** Insert the token meta before </head> and miru.css/js before </body>. */

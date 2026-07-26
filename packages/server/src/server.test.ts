@@ -60,6 +60,7 @@ describe("createServer — auth & routing", () => {
     target = join(dir, "doc.md");
     opts = {
       initialHtml: "<!doctype html><html><body>doc</body></html>",
+      initialDoc: "<p>doc</p>",
       target,
       token: TOKEN,
       nonce: "n0nce",
@@ -116,6 +117,35 @@ describe("createServer — auth & routing", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toEqual({ version: 1, target, approved: false, comments: [] });
+  });
+
+  test("GET /api/doc serves the current body, and setHtml replaces it", async () => {
+    const first = await fetch(`${base}/api/doc`, { headers: auth });
+    expect(first.status).toBe(200);
+    expect(await first.json()).toEqual({ html: "<p>doc</p>" });
+    s.setHtml("<!doctype html><html><body>next</body></html>", "<p>next</p>");
+    const second = await fetch(`${base}/api/doc`, { headers: auth });
+    expect(await second.json()).toEqual({ html: "<p>next</p>" });
+  });
+
+  test("GET /api/doc is 404 once the page has no swappable body", async () => {
+    s.setHtml("<!doctype html><html><body>raw</body></html>", null);
+    const res = await fetch(`${base}/api/doc`, { headers: auth });
+    expect(res.status).toBe(404);
+  });
+
+  test("notifyDocChange pushes `doc`, or `reload` when there is nothing to swap", async () => {
+    const res = await fetch(`${base}/api/events`);
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    const nextChunk = async () => decoder.decode((await reader.read()).value);
+    expect(await nextChunk()).toContain(": connected");
+    s.notifyDocChange();
+    expect(await nextChunk()).toContain("data: doc");
+    s.setHtml("<!doctype html><html><body>raw</body></html>", null);
+    s.notifyDocChange();
+    expect(await nextChunk()).toContain("data: reload");
+    await reader.cancel();
   });
 
   test("unknown path → 404", async () => {
