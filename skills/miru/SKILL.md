@@ -40,7 +40,7 @@ Repeat until the human approves or ends the session:
 - [ ] 1. `miru next <file>` — block until comments await you (or human approves)
 - [ ] 2. If `approved` is true → stop.
 - [ ] 3. For each comment in the JSON, edit the source file to apply the fix
-- [ ] 4. `miru comment <file> --reply-to <id> "<what you did>"` for each
+- [ ] 4. `miru comment <file> --reply-to <id>` — reply to each, in markdown
 - [ ] 5. Go to 1
 ```
 
@@ -76,6 +76,30 @@ miru comment <file> --reply-to <id> "<what you did>"
 
 This marks the comment **answered** so `miru next` won't hand it back. If the human isn't satisfied they reply in the browser, which re-opens the thread — `miru next` will return it again. The human **resolves** threads they're happy with; you do not resolve them.
 
+#### Write the reply as markdown
+
+The body is **rendered as markdown** in the panel: `**bold**`, `` `code` ``, bullet and numbered lists, fenced blocks, block quotes, links and `h3`/`h4` all work. Tables and images do not — they're stripped. Don't send a wall of prose; the human reads this in a narrow side panel and has to tell at a glance what changed.
+
+- One change → one sentence, no list, no preamble. Two or more changes, or a change plus a caveat → one bullet each.
+- Backtick every identifier, path, heading and literal you touched. Quote short new text verbatim; use a fenced block when it spans lines.
+- Report the edit — what changed and where — not your reasoning. Add one line of "why" only when the choice isn't obvious from the comment.
+- If you did **not** apply the comment or its `suggestion`, say so in the first line, then the reason.
+- Skip the pleasantries ("Thanks for catching this", "Great point"). The human wants the diff, not the acknowledgement.
+
+A multi-line body is just a quoted string containing newlines. Inside double quotes, escape backticks (`` \` ``) so the shell doesn't run them.
+
+## Comment shape
+
+Comments live in `<file>.miru.json`. Each has:
+
+- `id` — identifier (use with `--reply-to` / `--resolve`).
+- `anchor` — where it points: `{type:"text", quote, prefix, suffix}` or `{type:"element", selector, textHint}`.
+- `body` — the reviewer's note (markdown).
+- `suggestion` — `{replacement}` with proposed text, or `null`.
+- `status` — `draft` (staged, not yet sent — ignore it), `sent` (awaiting you — `miru next` returns these), `answered` (you've replied).
+- `resolved` — whether the human has closed the thread.
+- `replies[]` — the discussion thread.
+
 ## Examples
 
 ### Text anchor
@@ -91,10 +115,10 @@ Input (one comment from `miru next`):
 }
 ```
 
-You: edit the source, replacing `perfomance` with `performance` at the spot preceded by `improve ` and followed by ` of the`. Then:
+You: edit the source, replacing `perfomance` with `performance` at the spot preceded by `improve ` and followed by ` of the`. One change, so one sentence:
 
 ```sh
-miru comment doc.md --reply-to c_a1 "fixed typo: perfomance → performance"
+miru comment doc.md --reply-to c_a1 "Fixed the typo: \`perfomance\` → \`performance\`."
 ```
 
 ### Element anchor
@@ -110,10 +134,15 @@ Input:
 }
 ```
 
-You: locate the third `<h2>` (text "Setup") in the rendered output, find the corresponding heading in the source, split the section. Then:
+You: locate the third `<h2>` (text "Setup") in the rendered output, find the corresponding heading in the source, split the section. Several edits plus a judgement call, so a list:
 
 ```sh
-miru comment doc.md --reply-to c_b2 "split Setup into Setup / Configuration"
+miru comment doc.md --reply-to c_b2 "Split it in two:
+
+- \`## Setup\` — install and first run only
+- \`## Configuration\` — the environment variables, moved out of \`## Setup\`
+
+Left the troubleshooting note under \`## Setup\`; it reads fine there."
 ```
 
 ## Commands
@@ -121,24 +150,12 @@ miru comment doc.md --reply-to c_b2 "split Setup into Setup / Configuration"
 ```sh
 miru review <file>                            # Start the review server (run once, keep running)
 miru next <file>                              # Block until comments await; print {approved, comments} JSON
-miru comment <file> --reply-to <id> "<body>"  # Reply (marks comment answered)
+miru comment <file> --reply-to <id> "<body>"  # Reply in markdown (marks comment answered)
 miru comment <file> --resolve <id>            # Resolve a thread (normally the human does this)
 miru comments <file> [--json]                 # List open (sent, unresolved) comments without a server
 ```
 
 Use `miru next` for the interactive loop.
-
-## Comment shape
-
-Comments live in `<file>.miru.json`. Each has:
-
-- `id` — identifier (use with `--reply-to` / `--resolve`).
-- `anchor` — where it points: `{type:"text", quote, prefix, suffix}` or `{type:"element", selector, textHint}`.
-- `body` — the reviewer's note.
-- `suggestion` — `{replacement}` with proposed text, or `null`.
-- `status` — `draft` (staged, not yet sent — ignore it), `sent` (awaiting you — `miru next` returns these), `answered` (you've replied).
-- `resolved` — whether the human has closed the thread.
-- `replies[]` — the discussion thread.
 
 ## Notes
 
