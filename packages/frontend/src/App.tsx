@@ -68,8 +68,8 @@ export function App({
   // replace this.
   changedRange: { start: number; end: number } | null;
 }) {
-  const { docVersion, changedRange, swapDoc, clearChangedRange } = useDocSwap(initialChangedRange);
-  const c = useComments(initialCommentsPromise, docVersion);
+  const { doc, changedRange, swapDoc, clearChangedRange } = useDocSwap(initialChangedRange);
+  const c = useComments(initialCommentsPromise, doc);
   const [showResolved, setShowResolved] = useState(false);
   const [panelHidden, setPanelHidden] = usePanelHidden();
   const { draft, clearDraft } = useDraftCapture();
@@ -82,9 +82,9 @@ export function App({
 
   useEffect(() => {
     applyHighlights(c.comments, c.activeId);
-    // docVersion: the painted Ranges point at document nodes an in-place swap has
-    // replaced, so every swap has to repaint them from the new DOM.
-  }, [c.comments, c.activeId, docVersion]);
+    // doc: the painted Ranges point at document nodes an in-place swap has replaced, so
+    // every swap has to repaint them from the new DOM.
+  }, [c.comments, c.activeId, doc]);
 
   // Post-update flash: paint the changed range for CHANGED_FLASH_MS and show the chip.
   // The diff itself is computed elsewhere — in index.tsx for a fallback reload, in

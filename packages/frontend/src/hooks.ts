@@ -104,7 +104,6 @@ export function useDocumentEvent<K extends keyof DocumentEventMap>(
     document.addEventListener(type, listener);
     return () => document.removeEventListener(type, listener);
     // `onEvent` is from useEffectEvent: it must not be in deps (React rule).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [type]);
 }
 
@@ -134,12 +133,12 @@ const FRESH_REPLY_MS = 8000;
 // Suspense boundary) — creating it inside would re-fire on every Suspense remount and
 // loop forever. Subsequent reloads just setComments.
 //
-// `docVersion` (useDocSwap) is taken as an input because staleness is a question about
-// the live document, not just the comment set: an in-place swap changes the answer
+// The document snapshot (useDocSwap) is taken as an input because staleness is a question
+// about the live document, not just the comment set: an in-place swap changes the answer
 // without touching a single comment.
 export function useComments(
   initialPromise: Promise<HydratedReviewFile>,
-  docVersion: number,
+  doc: DocSnapshot,
 ): CommentsApi {
   const initial = use(initialPromise);
   const [comments, setComments] = useState<HydratedComment[]>(initial.comments);
@@ -258,14 +257,13 @@ export function useComments(
   );
 
   // Staleness depends only on the document and the comment set, so compute it once per
-  // change to either instead of on every Card render (e.g. while typing a reply).
-  const staleIds = useMemo(() => {
-    const full = docText(DOC());
-    return new Set(comments.filter((c) => isStale(c, full)).map((c) => c.id));
-    // docVersion isn't read here — it's the "the document DOM was replaced" signal that
-    // makes the DOM reads above worth redoing.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [comments, docVersion]);
+  // change to either instead of on every Card render (e.g. while typing a reply). Text
+  // anchors resolve against `doc.text`; element anchors still read the DOM, which is why
+  // the whole snapshot (fresh per swap) is the dependency rather than just its text.
+  const staleIds = useMemo(
+    () => new Set(comments.filter((c) => isStale(c, doc.text)).map((c) => c.id)),
+    [comments, doc],
+  );
 
   return {
     comments,
@@ -428,26 +426,34 @@ function reloadWithSnapshot(): void {
   location.reload();
 }
 
+// The reviewed document as React sees it. `text` is what text-anchor resolution actually
+// consumes, so derivations depend on real data rather than on a version counter they'd
+// have to pretend to read. A fresh object per swap is deliberate: a structural-only edit
+// (same text, different elements) leaves `text` equal but still invalidates every element
+// anchor and every painted Range, and identity is what makes those recompute.
+export interface DocSnapshot {
+  text: string;
+}
+
 // A source edit applied in place: fetch the re-rendered body and swap `.miru-doc`'s
 // contents. Everything a reload used to destroy — panel state, open cards, a half-typed
 // reply, the reading position — simply survives, which is the whole point.
 //
-// `docVersion` is the signal that the document DOM was replaced under React's feet. Anything
-// derived from the live DOM rather than from React state (anchor staleness, the painted
-// highlight Ranges) holds references to nodes that no longer exist, so every such
-// derivation takes it as a dependency and recomputes.
+// The returned snapshot is how the swap reaches everything derived from the live DOM
+// rather than from React state (anchor staleness, the painted highlight Ranges): those
+// hold references to nodes that no longer exist, so each takes it as a dependency.
 //
 // `changedRange` starts as the post-reload diff computed in index.tsx and is replaced by
 // an in-memory before/after diff on each swap — no sessionStorage round-trip needed once
 // the JS heap survives the update.
 export function useDocSwap(initialChangedRange: { start: number; end: number } | null): {
-  docVersion: number;
+  doc: DocSnapshot;
   changedRange: { start: number; end: number } | null;
   swapDoc: () => Promise<void>;
   /** Drop the current range once its flash has run its course (App owns the timer). */
   clearChangedRange: () => void;
 } {
-  const [docVersion, setDocVersion] = useState(0);
+  const [doc, setDoc] = useState<DocSnapshot>(() => ({ text: docText(DOC()) }));
   const [changedRange, setChangedRange] = useState(initialChangedRange);
   const clearChangedRange = useCallback(() => setChangedRange(null), []);
 
@@ -471,11 +477,12 @@ export function useDocSwap(initialChangedRange: { start: number; end: number } |
     root.innerHTML = html;
     if (scroller) scroller.scrollTop = top;
     else window.scrollTo(0, top);
-    setChangedRange(diffRange(before, docText(root)));
-    setDocVersion((v) => v + 1);
+    const after = docText(root);
+    setChangedRange(diffRange(before, after));
+    setDoc({ text: after });
   }, []);
 
-  return { docVersion, changedRange, swapDoc, clearChangedRange };
+  return { doc, changedRange, swapDoc, clearChangedRange };
 }
 
 // Debounce window for the "connection lost" banner. EventSource fires `onerror` on both
@@ -592,7 +599,6 @@ export function useLiveReload(
     };
     // `handle` / `flushPending` are from useEffectEvent: they must not be in
     // deps (React rule).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return { connected };

@@ -382,8 +382,8 @@ describe("useDocSwap", () => {
       await result.current.swapDoc();
     });
     expect(document.querySelector(".miru-doc")?.innerHTML).toBe("<p>after</p>");
-    // The version bump is what re-derives staleness and repaints the highlight Ranges.
-    expect(result.current.docVersion).toBe(1);
+    // The fresh snapshot is what re-derives staleness and repaints the highlight Ranges.
+    expect(result.current.doc.text).toBe("after");
     expect(result.current.changedRange).toEqual({ start: 0, end: 5 });
     // No reload was triggered: nothing was stashed for an after-reload diff.
     expect(consumePreReloadText()).toBeNull();
@@ -421,6 +421,10 @@ describe("useComments", () => {
     globalThis.fetch = RealFetch;
   });
 
+  // Stable identity: a fresh object per render would re-derive staleness every time, which
+  // is exactly the signal a swap is supposed to send. These tests never swap.
+  const NO_DOC = { text: "" };
+
   // The reload path fetches through api.listComments — stub at the fetch layer, same
   // seam api.test.ts uses.
   function stubList(review: ReturnType<typeof makeReview>) {
@@ -436,7 +440,7 @@ describe("useComments", () => {
     const promise = new Promise<ReturnType<typeof makeReview>>((r) => {
       resolve = r;
     });
-    const { result, rerender } = renderHook(() => useComments(promise, 0), { wrapper });
+    const { result, rerender } = renderHook(() => useComments(promise, NO_DOC), { wrapper });
     // Two-step Suspense resume for bun + happy-dom: resolve inside act, then kick a
     // rerender — the retry never self-schedules in this environment (neither waitFor
     // polling nor an empty act picks it up).
