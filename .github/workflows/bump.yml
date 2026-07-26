@@ -7,6 +7,9 @@ name: Bump version
 # only rewrites one version string, so re-running typecheck/lint/test would just repeat a
 # result that already exists. release.yml runs the full set again before it builds
 # anything, which is the check that actually guards the release.
+#
+# ci.yml does still cover the PR this opens, but its run is held for approval first,
+# because a pull request opened by Actions is not treated as a human-initiated event.
 on:
   workflow_dispatch:
     inputs:
@@ -78,7 +81,7 @@ jobs:
           cat > /tmp/pr-body.md <<EOF
           Bumps the version to \`$VERSION\`. **Merging this to \`main\` triggers the release workflow.**
 
-          ci.yml does not run on pull requests opened by Actions, so this PR carries no checks. The gates it would run have already passed on \`main\`, and release.yml re-runs them before building.
+          ci.yml starts out waiting for approval on this PR, because the pull request was opened by Actions rather than a person — approve it from the Actions tab to run the checks. They have already passed on \`main\` regardless, and release.yml re-runs them before building.
 
           Once the release is published, run the tap's Bump formula workflow to update the Homebrew formula.
 
