@@ -9,7 +9,7 @@ miru は、意図的に狭い[スコープ](README.ja.md#スコープ)（md / HT
 
 ## セットアップ
 
-miru は [Bun](https://bun.sh) で動きます（CI では **1.3.14** に固定）。
+miru は [Bun](https://bun.sh) で動きます（CI では **1.4.0** に固定）。
 他のランタイムは要りません。
 
 ```sh

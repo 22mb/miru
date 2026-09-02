@@ -10,7 +10,7 @@ toward generation, sharing, or code-diff review are out of scope; everything els
 
 ## Setup
 
-miru runs on [Bun](https://bun.sh) (CI pins **1.3.14**) — no other runtime is needed.
+miru runs on [Bun](https://bun.sh) (CI pins **1.4.0**) — no other runtime is needed.
 
 ```sh
 bun install        # also wires up the git hooks via lefthook (prepare script)
