@@ -6,7 +6,7 @@
   },
   "type": "module",
   "scripts": {
-    "test": "bun test"
+    "test": "bun run src/build-front.ts && bun test"
   },
   "dependencies": {
     "@miru/contract": "workspace:*",

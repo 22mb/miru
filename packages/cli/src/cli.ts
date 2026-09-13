@@ -52,7 +52,9 @@ const USAGE = `usage:
   miru install [claude-code]
       Install the miru skill into ~/.claude/skills/miru/SKILL.md.
   miru --version | -v
-      Print the embedded build version and exit.`;
+      Print the embedded build version and exit.
+  miru --help | -h
+      Print this usage and exit.`;
 
 function openBrowser(url: string): void {
   const platform = process.platform;
@@ -93,20 +95,48 @@ async function loadReview(file: string): Promise<ReviewFile> {
   }
 }
 
-const { positionals, values } = parseArgs({
-  allowPositionals: true,
-  options: {
-    port: { type: "string", default: "0" },
-    "no-open": { type: "boolean", default: false },
-    "unsafe-raw": { type: "boolean", default: false },
-    strict: { type: "boolean", default: false },
-    lang: { type: "string", default: "en" },
-    json: { type: "boolean", default: false },
-    "reply-to": { type: "string" },
-    resolve: { type: "string" },
-    version: { type: "boolean", short: "v", default: false },
-  },
-});
+// A bad invocation (unknown flag, flag missing its value) must read like any other
+// user error, not a stack trace. node's parseArgs throws a TypeError carrying an
+// ERR_PARSE_ARGS_* code for those, and only those; anything else still propagates.
+function parseCli() {
+  try {
+    return parseArgs({
+      allowPositionals: true,
+      options: {
+        port: { type: "string", default: "0" },
+        "no-open": { type: "boolean", default: false },
+        "unsafe-raw": { type: "boolean", default: false },
+        strict: { type: "boolean", default: false },
+        lang: { type: "string", default: "en" },
+        json: { type: "boolean", default: false },
+        "reply-to": { type: "string" },
+        resolve: { type: "string" },
+        version: { type: "boolean", short: "v", default: false },
+        help: { type: "boolean", short: "h", default: false },
+      },
+    });
+  } catch (err) {
+    if (
+      err instanceof TypeError &&
+      "code" in err &&
+      String(err.code).startsWith("ERR_PARSE_ARGS_")
+    ) {
+      console.error(`miru: ${err.message}`);
+      console.error(USAGE);
+      process.exit(1);
+    }
+    throw err;
+  }
+}
+
+const { positionals, values } = parseCli();
+
+// `miru --help` / `-h` wins over any command: the usage is the requested output, so
+// it goes to stdout like `--version`. A bad invocation keeps it on stderr with exit 1.
+if (values.help) {
+  console.log(USAGE);
+  process.exit(0);
+}
 
 // `miru --version` / `miru -v` prints the embedded build version and exits. The
 // value is the CalVer string baked into the root package.json by the bump script,
