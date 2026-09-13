@@ -7,16 +7,16 @@
   },
   "dependencies": {
     "@miru/contract": "workspace:*",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
   },
   "devDependencies": {
-    "@happy-dom/global-registrator": "^20.12.0",
+    "@happy-dom/global-registrator": "^20.14.3",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/react": "^16.3.3",
-    "@testing-library/user-event": "^14.6.6",
-    "@types/bun": "^1.4.0",
-    "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.5"
+    "@testing-library/user-event": "^14.6.7",
+    "@types/bun": "^1.4.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0"
   }
 }
