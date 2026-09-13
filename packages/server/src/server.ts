@@ -317,7 +317,8 @@ export function createServer(opts: ServeOptions): ReviewServer {
   // exemption is explicit and grep-visible: `public` skips the token gate (SSE, static
   // assets, the panel HTML — Host/Origin is still enforced), `token` requires the
   // per-launch header. The assets are served through handlers rather than static
-  // Response values because the dev server swaps them in place on every rebuild.
+  // Response values because the dev server swaps them in place on every rebuild (a static
+  // Response would also bypass `route()`, and with it the Host/Origin check).
   type Auth = "public" | "token";
   const forbidden = () => new Response("forbidden", { status: 403 });
   function route<P extends string>(
