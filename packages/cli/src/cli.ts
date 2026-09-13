@@ -177,7 +177,11 @@ const command = positionals[0];
 // it goes to stdout like `--version`. With a command it prints that command's page;
 // a bad invocation keeps the overview on stderr with exit 1.
 if (values.help) {
-  const page = command === undefined ? undefined : COMMAND_USAGE[command];
+  // hasOwn: a command named like an Object.prototype member must not print that.
+  const page =
+    command !== undefined && Object.hasOwn(COMMAND_USAGE, command)
+      ? COMMAND_USAGE[command]
+      : undefined;
   console.log(page ?? USAGE);
   process.exit(0);
 }

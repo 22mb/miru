@@ -34,10 +34,12 @@ describe("miru --help", () => {
     expect((await run("comment", "--help")).stdout).toContain("--resolve <id>");
   });
 
-  test("an unknown command falls back to the overview", async () => {
-    const r = await run("frobnicate", "-h");
-    expect(r.code).toBe(0);
-    expect(r.stdout).toStartWith("usage:\n");
+  test("an unknown command falls back to the overview, Object.prototype names included", async () => {
+    for (const command of ["frobnicate", "constructor", "__proto__"]) {
+      const r = await run(command, "-h");
+      expect(r.code).toBe(0);
+      expect(r.stdout).toStartWith("usage:\n");
+    }
   });
 });
 
