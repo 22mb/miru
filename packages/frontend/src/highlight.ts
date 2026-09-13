@@ -23,7 +23,14 @@ export function applyChangedHighlight(range: { start: number; end: number } | nu
   }
 }
 
-export function applyHighlights(comments: Comment[], activeId: string | null): void {
+// `doc` is the document snapshot the text anchors resolve against (DocSnapshot in
+// hooks.ts). Its text equals the live index built below by construction; it is passed in
+// so the effect that repaints after an in-place swap reads the snapshot it re-runs on.
+export function applyHighlights(
+  comments: Comment[],
+  activeId: string | null,
+  doc: { text: string },
+): void {
   const root = DOC();
   root
     .querySelectorAll(".miru-el-hl, .miru-el-active")
@@ -34,7 +41,7 @@ export function applyHighlights(comments: Comment[], activeId: string | null): v
   for (const c of comments) {
     if (c.resolved) continue;
     if (c.anchor.type === "text") {
-      const off = findTextOffsets(c.anchor, idx.text);
+      const off = findTextOffsets(c.anchor, doc.text);
       const r = off && rangeFromIndex(idx, off.start, off.end);
       if (r) ranges.push(r);
     } else {

@@ -13,6 +13,7 @@
     "@miru/server": "workspace:*"
   },
   "devDependencies": {
-    "@types/bun": "^1.4.0"
+    "@types/bun": "^1.4.0",
+    "oxc-transform-react": "^0.149.0"
   }
 }

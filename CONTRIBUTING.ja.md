@@ -34,6 +34,14 @@ bun run build                           # 単一バイナリ ./miru をコンパ
 frontend のバンドルはビルド時に CLI へ埋め込まれます（`packages/frontend/dist` の text import）。
 そのため、frontend を変更したら、バイナリや `miru review` で確認する前に `build:front` を再実行してください。
 
+`build:front` の実体は `packages/cli/src/build-front.ts` です。`bun build` の CLI はプラグインを
+受け取れないため、`Bun.build` を React Compiler のプラグイン（`react-compiler.ts`。Oxc による
+Rust 移植版 `oxc-transform-react`）付きで実行しています。コンパイラが適用されるのはバンドル時
+だけで、frontend のテストはコンパイル前のソースを実行します（プラグイン自体のテストは
+`packages/cli` にあります）。そのため、パネルの変更をコンパイル済みコードで確かめるには、
+ブラウザで動かす必要があります（`bun run dev review …` か下記の開発ループ）。関数単位で外したい
+ときは `"use no memo"` ディレクティブを使います。
+
 ### フロントエンド開発ループ
 
 パネルはサーバーがレンダリングした文書に注入される構造のため、フロントエンドの開発は本物の
@@ -45,7 +53,9 @@ bun run dev:front path/to/doc.md      # 特定の文書をレビュー（サイ�
 ```
 
 `packages/cli/src/dev-server.ts` がパネルをインプロセスの `Bun.build` でバンドルし（dev 用
-define、インラインソースマップ）、`packages/frontend/src` 配下の変更のたびに再ビルドします。
+define、`build:front` と同じ React Compiler プラグイン、インラインソースマップ。Bun のプラグイン
+API はソースマップを渡せないため、マップが指すのはコンパイラの出力であって `.tsx` ではありません）、
+`packages/frontend/src` 配下の変更のたびに再ビルドします。
 接続中のブラウザはサーバー自身の SSE チャンネル経由でリロードされます。`build:front` も
 埋め込みアセットも追加ツールも不要で、ページには本番と同じ CSP が付くため、dev でもバイナリと
 同じ挙動になります。フラグ（`--` の後に指定）: `--port N`（デフォルト 4400）、`--no-open`。
