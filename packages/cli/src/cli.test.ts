@@ -17,19 +17,27 @@ async function run(...args: string[]): Promise<{ code: number; stdout: string; s
 }
 
 describe("miru --help", () => {
-  test("prints the usage on stdout and exits 0", async () => {
+  test("prints the overview on stdout and exits 0", async () => {
     const r = await run("--help");
     expect(r.code).toBe(0);
-    expect(r.stdout).toStartWith("usage:");
+    expect(r.stdout).toStartWith("usage:\n");
     expect(r.stderr).toBe("");
   });
 
-  test("wins wherever it appears, -h included", async () => {
-    for (const args of [["review", "--help"], ["-h"], ["comments", "missing.md", "-h"]]) {
-      const r = await run(...args);
+  test("with a command prints that command's page, -h in any position included", async () => {
+    for (const command of ["review", "comments", "comment", "next", "install"]) {
+      const r = await run(command, "missing.md", "-h");
       expect(r.code).toBe(0);
-      expect(r.stdout).toStartWith("usage:");
+      expect(r.stdout).toStartWith(`usage: miru ${command} `);
     }
+    expect((await run("review", "--help")).stdout).toContain("--unsafe-raw");
+    expect((await run("comment", "--help")).stdout).toContain("--resolve <id>");
+  });
+
+  test("an unknown command falls back to the overview", async () => {
+    const r = await run("frobnicate", "-h");
+    expect(r.code).toBe(0);
+    expect(r.stdout).toStartWith("usage:\n");
   });
 });
 
