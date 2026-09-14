@@ -4,8 +4,9 @@
 // cli.ts embeds the built frontend bundle at compile time (text imports of dist),
 // which forces a `build:front` + restart to see any panel change. This entry is
 // `miru review` run straight from source instead: the panel is bundled in-process
-// with Bun.build (same bundler as production, ~30 ms, dev define + inline
-// sourcemaps), packages/frontend/src is watched, and every change rebuilds the
+// with Bun.build (same bundler and React Compiler plugin as production, dev define +
+// inline sourcemaps — which map to the compiler's output, not the .tsx, since Bun's
+// plugin API carries no maps), packages/frontend/src is watched, and every change rebuilds the
 // assets and reloads connected browsers over the review server's own SSE channel.
 // No dist, no restart, no extra tooling — and the page ships with the real CSP,
 // so dev behaves like the embedded binary. Approve does not exit here; the loop
@@ -25,6 +26,7 @@ import {
   wrapDocument,
   type WrappedDocument,
 } from "@miru/server";
+import { reactCompiler } from "./react-compiler.ts";
 
 const FRONTEND_SRC = join(import.meta.dirname, "../../frontend/src");
 const REPO = join(import.meta.dirname, "../../..");
@@ -69,6 +71,7 @@ async function buildAssets(): Promise<boolean> {
       // production embedding (`build:front`) stays the minified bun build.
       define: { "process.env.NODE_ENV": JSON.stringify("development") },
       sourcemap: "inline",
+      plugins: [reactCompiler(FRONTEND_SRC)],
     });
     const bundle = result.outputs[0];
     if (!bundle) {

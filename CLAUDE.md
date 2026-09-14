@@ -23,8 +23,10 @@ the workflow around the code.
 - After any UI change: rebuild → restart the running `miru review` server → verify in the
   browser (e.g. `bun run dev review examples/sample.md` + an agent-browser screenshot)
   **before reporting done**. "The code is edited" is not done.
-- Never start `miru review` twice for the same file — the second bind fails. Restarting
-  means killing the old process first, then relaunching.
+- Never start `miru review` twice for the same file — with the default random port the
+  second start does not fail, it launches a second server and both write the same sidecar
+  (with an explicit `--port` it dies with EADDRINUSE). Restarting means killing the old
+  process first, then relaunching.
 - The Stop hook lint/typechecks the files you edited but **does not run tests** — run
   `bun run test` yourself before finishing (one package only:
   `bun run --filter '@miru/server' test`). Use the script, not a bare `bun test` over

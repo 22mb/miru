@@ -119,6 +119,45 @@ describe("createServer — auth & routing", () => {
     expect(body).toEqual({ version: 1, target, approved: false, comments: [] });
   });
 
+  // The whole route table, so a route that loses its `token` class (or its `route()`
+  // wrapper) fails here: the local check answers before the token, the token before
+  // the handler.
+  const ROUTES = [
+    ["GET", "/", "public"],
+    ["GET", "/__miru__/miru.js", "public"],
+    ["GET", "/__miru__/miru.css", "public"],
+    ["GET", "/api/events", "public"],
+    ["GET", "/api/doc", "token"],
+    ["POST", "/api/approve", "token"],
+    ["GET", "/api/comments", "token"],
+    ["POST", "/api/comments", "token"],
+    ["POST", "/api/review/submit", "token"],
+    ["PATCH", "/api/comments/c_nope", "token"],
+    ["DELETE", "/api/comments/c_nope", "token"],
+  ] as const;
+
+  const status = async (method: string, path: string, headers: Record<string, string>) => {
+    const res = await fetch(`${base}${path}`, { method, headers });
+    await res.body?.cancel(); // /api/events streams — don't hold the connection open
+    return res.status;
+  };
+
+  test.each(ROUTES)(
+    "%s %s is %s: local check, then token, then handler",
+    async (method, path, kind) => {
+      expect(await status(method, path, { host: "evil.example", ...auth })).toBe(403);
+      expect(await status(method, path, { origin: "https://evil.example", ...auth })).toBe(403);
+      expect(await status(method, path, {})).toBe(kind === "token" ? 401 : 200);
+      expect([401, 403]).not.toContain(await status(method, path, auth));
+    },
+  );
+
+  test("a known path with the wrong method is 404, after the local check", async () => {
+    expect(await status("PUT", "/api/comments", auth)).toBe(404);
+    expect(await status("GET", "/api/approve", auth)).toBe(404);
+    expect(await status("GET", "/api/approve", { host: "evil.example", ...auth })).toBe(403);
+  });
+
   test("GET /api/doc serves the current body, and setHtml replaces it", async () => {
     const first = await fetch(`${base}/api/doc`, { headers: auth });
     expect(first.status).toBe(200);

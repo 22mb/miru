@@ -30,7 +30,7 @@ miru review <file.md|.html>
 
 A browser opens. The human comments by selecting text or `Alt`+clicking an element, then either sends each comment immediately ("Send") or stages several with "Save draft" and clicks "Submit review". Editing the source file live re-renders the open browser, so the human sees your fixes as they land.
 
-Do not call `miru review` more than once for the same file — re-running it will fail to bind the port.
+Run `miru review` once per file and keep that process. A second start does not fail unless it asks for the same `--port`: with the default random port it opens another server, and both write the same sidecar, so nothing tells you which process will print the Approve verdict.
 
 ## The review loop
 
@@ -78,13 +78,7 @@ This marks the comment **answered** so `miru next` won't hand it back. If the hu
 
 #### Write the reply as markdown
 
-The body is **rendered as markdown** in the panel: `**bold**`, `` `code` ``, bullet and numbered lists, fenced blocks, block quotes, links and `h3`/`h4` all work. Tables and images do not — they're stripped. Don't send a wall of prose; the human reads this in a narrow side panel and has to tell at a glance what changed.
-
-- One change → one sentence, no list, no preamble. Two or more changes, or a change plus a caveat → one bullet each.
-- Backtick every identifier, path, heading and literal you touched. Quote short new text verbatim; use a fenced block when it spans lines.
-- Report the edit — what changed and where — not your reasoning. Add one line of "why" only when the choice isn't obvious from the comment.
-- If you did **not** apply the comment or its `suggestion`, say so in the first line, then the reason.
-- Skip the pleasantries ("Thanks for catching this", "Great point"). The human wants the diff, not the acknowledgement.
+The body is **rendered as markdown** in the panel: `**bold**`, `` `code` ``, bullet and numbered lists, fenced blocks, block quotes, links and `h3`/`h4` all work; tables and images are stripped. The human reads it in a narrow side panel to check what changed, so write the reply as that diff: what changed and where, with every identifier, path, heading and literal you touched in backticks, and short new text quoted verbatim (a fenced block when it spans lines). Lead with the change itself: no thanks, no restating the comment, and no account of your reasoning. One change is one sentence and nothing more; two or more changes, or a change plus a caveat, are one bullet each. Add a line of "why" only when the choice isn't obvious from the comment. When you did not apply a comment or its `suggestion`, say so in the first line, then the reason.
 
 A multi-line body is just a quoted string containing newlines. Inside double quotes, escape backticks (`` \` ``) so the shell doesn't run them.
 
@@ -98,7 +92,9 @@ Comments live in `<file>.miru.json`. Each has:
 - `suggestion` — `{replacement}` with proposed text, or `null`.
 - `status` — `draft` (staged, not yet sent — ignore it), `sent` (awaiting you — `miru next` returns these), `answered` (you've replied).
 - `resolved` — whether the human has closed the thread.
-- `replies[]` — the discussion thread.
+- `replies[]` — the discussion thread. Each reply's `author` is `human` or `agent`: that is how you tell the human's follow-up from your own earlier reply.
+
+The JSON also carries the panel's anchoring and status internals — `start` / `end`, `tagChain`, `role`, `accessibleName`, `landmark`, `index`, `createdAt`, `pickedUpAt`, and `createdAt` on replies. Ignore them. A reply with `draft: true` is staged and unsent; `miru next` never shows one, and if you read the sidecar directly, leave it alone.
 
 ## Examples
 
@@ -152,10 +148,8 @@ miru review <file>                            # Start the review server (run onc
 miru next <file>                              # Block until comments await; print {approved, comments} JSON
 miru comment <file> --reply-to <id> "<body>"  # Reply in markdown (marks comment answered)
 miru comment <file> --resolve <id>            # Resolve a thread (normally the human does this)
-miru comments <file> [--json]                 # List open (sent, unresolved) comments without a server
+miru comments <file> [--json]                 # List unresolved comments (sent or answered) without a server
 ```
-
-Use `miru next` for the interactive loop.
 
 ## Notes
 

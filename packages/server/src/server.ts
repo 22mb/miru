@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import type { Server } from "bun";
+import type { BunRequest, Server } from "bun";
 import { renderCommentBody } from "./render.ts";
 import {
   CorruptedSidecarError,
@@ -311,90 +311,26 @@ export function createServer(opts: ServeOptions): ReviewServer {
     return Response.json({ ok: true });
   }
 
-  // ---------- declarative route table ----------
-  // Every route makes its auth requirement explicit — `public` skips the token gate,
-  // `token` enforces it. Grep-visible exemptions (SSE, static assets, the panel HTML)
-  // replace the previous "if you fall past the /api/ auth block, you're public" trick.
-  // Match-order in the array is the tie-breaker only for overlapping patterns; the
-  // current set has none.
-  type RouteMatch = RegExpMatchArray | null;
-  interface Route {
-    method: string;
-    pattern: string | RegExp;
-    auth: "public" | "token";
-    handler: (req: Request, match: RouteMatch) => Response | Promise<Response>;
-  }
-  const COMMENT_ID_PATH = /^\/api\/comments\/([\w-]+)$/;
-  const routes: Route[] = [
-    { method: "GET", pattern: "/", auth: "public", handler: () => servePage() },
-    { method: "GET", pattern: "/__miru__/miru.js", auth: "public", handler: () => serveJs() },
-    { method: "GET", pattern: "/__miru__/miru.css", auth: "public", handler: () => serveCss() },
-    // SSE only pushes "reload"/"comments" hints (no data) — Host/Origin is still enforced.
-    { method: "GET", pattern: "/api/events", auth: "public", handler: () => serveEvents() },
-    { method: "GET", pattern: "/api/doc", auth: "token", handler: () => serveDoc() },
-    { method: "POST", pattern: "/api/approve", auth: "token", handler: () => handleApprove() },
-    { method: "GET", pattern: "/api/comments", auth: "token", handler: () => handleListComments() },
-    {
-      method: "POST",
-      pattern: "/api/comments",
-      auth: "token",
-      handler: (req) => handleCreateComment(req),
-    },
-    {
-      method: "POST",
-      pattern: "/api/review/submit",
-      auth: "token",
-      handler: () => handleSubmitReview(),
-    },
-    {
-      method: "PATCH",
-      pattern: COMMENT_ID_PATH,
-      auth: "token",
-      handler: (req, m) => handlePatchComment(req, m![1]!),
-    },
-    {
-      method: "DELETE",
-      pattern: COMMENT_ID_PATH,
-      auth: "token",
-      handler: (_, m) => handleDeleteComment(m![1]!),
-    },
-  ];
-
-  function matchRoute(req: Request, url: URL): { route: Route; match: RouteMatch } | null {
-    for (const route of routes) {
-      if (route.method !== req.method) continue;
-      if (typeof route.pattern === "string") {
-        if (route.pattern === url.pathname) return { route, match: null };
-      } else {
-        const m = url.pathname.match(route.pattern);
-        if (m) return { route, match: m };
-      }
-    }
-    return null;
-  }
-
-  const server = Bun.serve({
-    hostname: "127.0.0.1",
-    port: opts.port,
-    // Disable the 10s default idle timeout: the SSE stream (/api/events) is long-lived
-    // and mostly silent, so the default would drop it every 10s and lose live updates
-    // that fire in the reconnect gap.
-    idleTimeout: 0,
-    // 1 MiB is ~15x the largest legitimate POST (a single comment with full-cap
-    // body + suggestion + anchor) and an order of magnitude below Bun's default,
-    // which would otherwise let a single ~128 MB POST stall the event loop in
-    // sanitize-html and bloat the sidecar.
-    maxRequestBodySize: 1_048_576,
-    async fetch(req) {
-      const url = new URL(req.url);
-      if (!isLocalRequest(req)) return new Response("forbidden", { status: 403 });
-      const matched = matchRoute(req, url);
-      if (!matched) return new Response("not found", { status: 404 });
-      const { route, match } = matched;
-      if (route.auth === "token" && !tokensEqual(req.headers.get("x-miru-token") ?? "", opts.token))
+  // ---------- routes ----------
+  // Bun.serve's router does the path + method dispatch (`:id` params included). What
+  // stays ours is the security boundary, applied per route through `route()` so every
+  // exemption is explicit and grep-visible: `public` skips the token gate (SSE, static
+  // assets, the panel HTML — Host/Origin is still enforced), `token` requires the
+  // per-launch header. The assets are served through handlers rather than static
+  // Response values because the dev server swaps them in place on every rebuild (a static
+  // Response would also bypass `route()`, and with it the Host/Origin check).
+  type Auth = "public" | "token";
+  const forbidden = () => new Response("forbidden", { status: 403 });
+  function route<P extends string>(
+    auth: Auth,
+    handler: (req: BunRequest<P>) => Response | Promise<Response>,
+  ): (req: BunRequest<P>) => Promise<Response> {
+    return async (req) => {
+      if (!isLocalRequest(req)) return forbidden();
+      if (auth === "token" && !tokensEqual(req.headers.get("x-miru-token") ?? "", opts.token))
         return new Response("unauthorized", { status: 401 });
       try {
-        return await route.handler(req, match);
+        return await handler(req);
       } catch (err) {
         // Sidecar data-state problems (corruption / newer schema) aren't server bugs:
         // surface them as 422 with a distinguishable error field so the user fixes the
@@ -414,6 +350,43 @@ export function createServer(opts: ServeOptions): ReviewServer {
         }
         throw err;
       }
+    };
+  }
+
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: opts.port,
+    // Disable the 10s default idle timeout: the SSE stream (/api/events) is long-lived
+    // and mostly silent, so the default would drop it every 10s and lose live updates
+    // that fire in the reconnect gap.
+    idleTimeout: 0,
+    // 1 MiB is ~15x the largest legitimate POST (a single comment with full-cap
+    // body + suggestion + anchor) and an order of magnitude below Bun's default,
+    // which would otherwise let a single ~128 MB POST stall the event loop in
+    // sanitize-html and bloat the sidecar.
+    maxRequestBodySize: 1_048_576,
+    routes: {
+      "/": { GET: route("public", () => servePage()) },
+      "/__miru__/miru.js": { GET: route("public", () => serveJs()) },
+      "/__miru__/miru.css": { GET: route("public", () => serveCss()) },
+      // SSE only pushes "reload"/"doc"/"comments" hints (no data) — Host/Origin is still enforced.
+      "/api/events": { GET: route("public", () => serveEvents()) },
+      "/api/doc": { GET: route("token", () => serveDoc()) },
+      "/api/approve": { POST: route("token", () => handleApprove()) },
+      "/api/comments": {
+        GET: route("token", () => handleListComments()),
+        POST: route("token", (req) => handleCreateComment(req)),
+      },
+      "/api/review/submit": { POST: route("token", () => handleSubmitReview()) },
+      "/api/comments/:id": {
+        PATCH: route("token", (req) => handlePatchComment(req, req.params.id)),
+        DELETE: route("token", (req) => handleDeleteComment(req.params.id)),
+      },
+    },
+    // Paths the router doesn't know. The local check still comes first, so a non-local
+    // probe learns nothing from the status code.
+    fetch(req) {
+      return isLocalRequest(req) ? new Response("not found", { status: 404 }) : forbidden();
     },
   });
 

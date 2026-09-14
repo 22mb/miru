@@ -81,9 +81,10 @@ export function App({
   const resizerRef = usePanelResize(collapsePanel);
 
   useEffect(() => {
-    applyHighlights(c.comments, c.activeId);
     // doc: the painted Ranges point at document nodes an in-place swap has replaced, so
-    // every swap has to repaint them from the new DOM.
+    // every swap has to repaint them from the new DOM. The snapshot is passed in, not just
+    // listed as a dependency, so the effect reads what it re-runs on.
+    applyHighlights(c.comments, c.activeId, doc);
   }, [c.comments, c.activeId, doc]);
 
   // Post-update flash: paint the changed range for CHANGED_FLASH_MS and show the chip.

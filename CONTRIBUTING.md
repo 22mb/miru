@@ -37,6 +37,13 @@ The frontend bundle is embedded into the CLI at build time (text imports of
 `packages/frontend/dist`), so rebuild it (`build:front`) after frontend changes before testing
 the binary or `miru review`.
 
+`build:front` is `packages/cli/src/build-front.ts`: a `Bun.build` run with the React Compiler
+as a plugin (`react-compiler.ts`, Oxc's Rust port via `oxc-transform-react`), because the
+`bun build` CLI takes no plugins. The compiler is applied at bundle time only — the frontend's
+tests run the uncompiled source (the plugin itself is tested in `packages/cli`) — so a panel
+change is only proven on compiled code by running it in the browser (`bun run dev review …` or
+the dev loop below). A function opts out with a `"use no memo"` directive.
+
 ### Frontend dev loop
 
 The panel is injected into a server-rendered document, so frontend work runs against a real
@@ -47,12 +54,13 @@ bun run dev:front                     # scratch copy of examples/sample.html →
 bun run dev:front path/to/doc.md      # review a specific document (its sidecar persists as usual)
 ```
 
-`packages/cli/src/dev-server.ts` bundles the panel in-process with `Bun.build` (dev define,
-inline sourcemaps) and rebuilds on every change under `packages/frontend/src`; connected
-browsers reload over the server's own SSE channel. No `build:front`, no embedded assets, no
-extra tooling — and the page ships with the production CSP, so dev behaves like the binary.
-Flags (after `--`): `--port N` (default 4400), `--no-open`. Final verification still goes
-through the embedded bundle (`build:front` + restart).
+`packages/cli/src/dev-server.ts` bundles the panel in-process with `Bun.build` (dev define, the
+same React Compiler plugin as `build:front`, inline sourcemaps — which map to the compiler's
+output rather than the `.tsx`, since Bun's plugin API carries no source maps) and rebuilds on
+every change under `packages/frontend/src`; connected browsers reload over the server's own SSE
+channel. No `build:front`, no embedded assets, no extra tooling — and the page ships with the
+production CSP, so dev behaves like the binary. Flags (after `--`): `--port N` (default 4400),
+`--no-open`. Final verification still goes through the embedded bundle (`build:front` + restart).
 
 ## Before you open a PR
 
