@@ -4,82 +4,78 @@
 
 # miru へのコントリビューション
 
-miru は、意図的に狭い[スコープ](README.ja.md#スコープ)（md / HTML ドキュメントのレンダリングレビュー）を持つ、ローカルだけで動く小さなツールです。
-生成、共有、コード差分のレビューに向かう変更はスコープ外ですが、それ以外は歓迎します。
+miru は、ローカル環境だけで動作する小さなツールで、[スコープ](README.ja.md#スコープ)（md や HTML ドキュメントのレンダリングレビュー）を意図的に狭く絞っています。
+生成や共有、コード差分のレビューを志向する変更はスコープ外ですが、それ以外の変更は歓迎します。
 
 ## セットアップ
 
-miru は [Bun](https://bun.sh) で動きます（CI では **1.4.0** に固定）。
-他のランタイムは要りません。
+miru は [Bun](https://bun.sh) 上で動作し（CI ではバージョンを **1.4.0** に固定）、他のランタイムは必要ありません。
 
 ```sh
-bun install        # lefthook 経由で git hook も同時に有効化されます（prepare スクリプト）
+bun install        # prepare スクリプトにより、lefthook 経由で git hook も同時に有効化されます
 ```
 
-リポジトリは 4 つのパッケージを持つ Bun ワークスペースです。
+リポジトリは、次の 4 つのパッケージで構成される Bun ワークスペースです。
 
-- **`packages/contract`**：zod スキーマと `z.infer` 型。ワイヤ形式と永続化形式の単一の出所であり、server と frontend の両方で共有します
-- **`packages/server`**：Bun 製のレビューサーバーとドメインヘルパー（render、inject、store、watch）。CLI から利用されます
-- **`packages/cli`**：`miru` CLI 本体（`miru review` / `next` / `comment` など）。`@miru/server` の上に構築されています
-- **`packages/frontend`**：React 製の UI。バンドルして `miru` バイナリに埋め込みます
+- **`packages/contract`**：zod スキーマと `z.infer` による型。ワイヤ形式と永続化形式の単一の情報源（Single Source of Truth）であり、server と frontend の両方で共有されます。
+- **`packages/server`**：Bun 製のレビューサーバーとドメインヘルパー（render、inject、store、watch）。CLI から利用されます。
+- **`packages/cli`**：`miru` CLI 本体（`miru review`、`next`、`comment` など）。`@miru/server` を基盤として構築されています。
+- **`packages/frontend`**：React 製の UI。バンドルした上で `miru` バイナリに埋め込まれます。
 
 ## 開発
 
 ```sh
 bun run dev review examples/sample.md   # ソースから CLI を実行
 bun run build:front                     # packages/frontend/src → packages/frontend/dist/miru.{js,css}
-bun run build                           # 単一バイナリ ./miru をコンパイル（アセット埋め込み）
+bun run build                           # 単一バイナリ ./miru をコンパイル（アセットを埋め込み）
 ```
 
-frontend のバンドルはビルド時に CLI へ埋め込まれます（`packages/frontend/dist` の text import）。
-そのため、frontend を変更したら、バイナリや `miru review` で確認する前に `build:front` を再実行してください。
+frontend のバンドルは、ビルド時に CLI へ埋め込まれます（`packages/frontend/dist` を text import で読み込み）。
+そのため、frontend を変更したときは、バイナリや `miru review` で動作を確認する前に `build:front` を再実行してください。
 
-`build:front` の実体は `packages/cli/src/build-front.ts` です。`bun build` の CLI はプラグインを
-受け取れないため、`Bun.build` を React Compiler のプラグイン（`react-compiler.ts`。Oxc による
-Rust 移植版 `oxc-transform-react`）付きで実行しています。コンパイラが適用されるのはバンドル時
-だけで、frontend のテストはコンパイル前のソースを実行します（プラグイン自体のテストは
-`packages/cli` にあります）。そのため、パネルの変更をコンパイル済みコードで確かめるには、
-ブラウザで動かす必要があります（`bun run dev review …` か下記の開発ループ）。関数単位で外したい
-ときは `"use no memo"` ディレクティブを使います。
+`build:front` の実体は `packages/cli/src/build-front.ts` です。
+`bun build` コマンドはプラグインを受け付けないため、このスクリプトでは React Compiler のプラグイン（`react-compiler.ts`。Oxc による Rust 移植版の `oxc-transform-react`）を指定して `Bun.build` を実行しています。
+コンパイラが適用されるのはバンドル時だけであり、frontend のテストはコンパイル前のソースに対して実行されます（プラグイン自体のテストは `packages/cli` にあります）。
+そのため、パネルの変更をコンパイル済みのコードで確認するには、ブラウザ上で動作させる必要があります（`bun run dev review …` または後述の開発ループを使用）。
+特定の関数をコンパイラの適用対象から外したいときは、`"use no memo"` ディレクティブを使います。
 
 ### フロントエンド開発ループ
 
-パネルはサーバーがレンダリングした文書に注入される構造のため、フロントエンドの開発は本物の
-レビューサーバー相手に行います — 次の 1 コマンドで両方をソースから直接起動できます。
+パネルはサーバーがレンダリングした文書に注入される構造のため、フロントエンドの開発は実際のレビューサーバーに対して行います。
+次の 1 コマンドで、サーバーとパネルの両方をソースから直接起動できます。
 
 ```sh
 bun run dev:front                     # examples/sample.html のスクラッチコピー → http://127.0.0.1:4400
 bun run dev:front path/to/doc.md      # 特定の文書をレビュー（サイドカーは通常どおり永続化）
 ```
 
-`packages/cli/src/dev-server.ts` がパネルをインプロセスの `Bun.build` でバンドルし（dev 用
-define、`build:front` と同じ React Compiler プラグイン、インラインソースマップ。Bun のプラグイン
-API はソースマップを渡せないため、マップが指すのはコンパイラの出力であって `.tsx` ではありません）、
-`packages/frontend/src` 配下の変更のたびに再ビルドします。
-接続中のブラウザはサーバー自身の SSE チャンネル経由でリロードされます。`build:front` も
-埋め込みアセットも追加ツールも不要で、ページには本番と同じ CSP が付くため、dev でもバイナリと
-同じ挙動になります。フラグ（`--` の後に指定）: `--port N`（デフォルト 4400）、`--no-open`。
-最終確認は引き続き埋め込みバンドル（`build:front` + 再起動）で行ってください。
+`packages/cli/src/dev-server.ts` は、パネルをインプロセスの `Bun.build` でバンドルし、`packages/frontend/src` 配下のファイルが変更されるたびに再ビルドします。
+バンドル時には、dev 用の define、`build:front` と同じ React Compiler プラグイン、インラインソースマップを使用します。
+なお、Bun のプラグイン API はソースマップを受け渡せないため、ソースマップが指すのは `.tsx` ではなくコンパイラの出力です。
+接続中のブラウザは、サーバー自身の SSE チャンネル経由でリロードされます。
+`build:front` の実行、埋め込みアセット、追加のツールはいずれも不要です。
+また、ページには本番と同じ CSP が適用されるため、dev 環境でもバイナリと同じ挙動になります。
+指定できるフラグ（`--` の後に指定）は、`--port N`（デフォルトは 4400）と `--no-open` です。
+ただし、最終確認は引き続き埋め込みバンドル（`build:front` を実行してから再起動）で行ってください。
 
 ## PR を開く前に
 
-CI は PR ごとに次の 4 つのチェックを走らせます。
-先にローカルで実行してください。
+CI は PR ごとに次の 4 つのチェックを実行するため、事前にローカルでも実行してください。
 
 ```sh
 bun run typecheck      # tsc -b
 bun run lint           # oxlint
-bun run fmt:check      # oxfmt --check（pre-commit hook が stage 済みファイルを整形します）
-bun run test           # bun run --filter '*' test（パッケージごとに別プロセス。frontend の happy-dom を server テストに漏らさないため）
+bun run fmt:check      # oxfmt --check（pre-commit hook がステージ済みのファイルを整形します）
+bun run test           # bun run --filter '*' test（パッケージごとに別プロセスで実行。frontend の happy-dom を server のテストに混入させないため）
 ```
 
-PR は単一の関心事に絞り、CI を green にしてください。
-新しいテストは対象ユニットの隣に `*.test.ts` または `*.test.tsx` として置きます。
+PR の内容は単一の関心事に絞り、CI が通過した状態（green）にしてください。
+新しいテストは、`*.test.ts` または `*.test.tsx` として対象ユニットのファイルと並べて配置します。
 
 ## 規約
 
-パッケージごとのコーディング規約とテスト規約は [`.claude/rules/`](.claude/rules) にあります（パスでスコープが切られ、AI エージェントにも与えられます）。
-最初に共有しておく不変条件が 2 つあります。
+パッケージごとのコーディング規約とテスト規約は [`.claude/rules/`](.claude/rules) にあります（規約はパスごとに適用範囲が区切られており、AI エージェントにも提供されます）。
+ここでは、最初に共有しておく不変条件を 2 つ挙げます。
 
-- **contract が単一の出所**：新しいワイヤ形式や永続化形式は、素のインタフェースではなく `@miru/contract` の zod スキーマとして追加してください。リクエスト body は `safeParse` で検証し（失敗時は 400 を返します）、手書きでパースはしないでください。
-- **セキュリティ境界を弱めない**：miru は `127.0.0.1` だけにバインドし、`/api/*` は起動ごとのトークンでゲートし、Host と Origin を検証し、厳格な CSP を適用し、レンダリングした HTML はすべてサーバー側でサニタイズしています（デフォルト層は表現 — CSS / SVG / メディア — を通しつつ実行可能なものを除去し、`--strict` はタイポグラフィのみ）。サニタイズを無効化する手段は `--unsafe-raw` だけです。
+- **contract を単一の情報源にする**：新しいワイヤ形式や永続化形式は、素の TypeScript インターフェースではなく、`@miru/contract` の zod スキーマとして追加してください。リクエストボディは手書きでパースせず、`safeParse` で検証してください（検証に失敗したときは 400 を返します）。
+- **セキュリティ境界を弱めない**：miru は `127.0.0.1` だけにバインドし、`/api/*` へのアクセスを起動ごとに発行されるトークンで制限しています。また、Host ヘッダーと Origin ヘッダーを検証し、厳格な CSP を適用しています。レンダリングした HTML はすべてサーバー側でサニタイズしており、デフォルトの層では表現（CSS・SVG・メディア）を許可しつつ実行可能な要素を除去し、`--strict` ではタイポグラフィのみを許可します。サニタイズを無効化する手段は `--unsafe-raw` だけです。
