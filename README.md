@@ -8,6 +8,10 @@
 
 # miru
 
+> [!WARNING]
+> **miru is no longer maintained**, and this repository is archived.
+> Existing releases and the Homebrew formula remain installable, but no further updates, including security fixes, will be made.
+
 miru (見る, "to see") is a local tool for inline review of AI-generated Markdown / HTML, as rendered in the browser.
 Select body text or `Alt`+click an element to leave a comment right there.
 Fully local — nothing is sent externally.
